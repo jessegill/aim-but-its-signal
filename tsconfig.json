@@ -1,0 +1,18 @@
+{
+  // Solution-style root config. The two real projects are referenced below; editors and
+  // `npm run typecheck` use those.
+  //
+  // The compilerOptions here exist for one reason: typescript-eslint's `projectService`
+  // falls back to this file as its "default project" for root-level files that no other
+  // tsconfig includes (electron.vite.config.ts). Without them that file gets linted with
+  // strictNullChecks off, and the type-aware rules bail out.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "composite": false,
+    "tsBuildInfoFile": "node_modules/.tmp/tsconfig.root.tsbuildinfo"
+  },
+  "files": [],
+  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.web.json" }]
+}

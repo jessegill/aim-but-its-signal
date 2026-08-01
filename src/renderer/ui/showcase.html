@@ -1,0 +1,1633 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AIM 5.1 component showcase</title>
+
+    <!--
+      showcase.html — every component in this library, with mock data, so the
+      look can be reviewed without running Electron.
+
+      OPEN IT DIRECTLY: double-click the file, or `open showcase.html`. No build
+      step, no server, no network. It links theme.css from this same directory,
+      which is the single source of truth for the visual system — if the look is
+      wrong here it is wrong in the app.
+
+      Why hand-written markup and not the .tsx components? Those need a bundler
+      and a JSX transform, which would defeat "openable directly in a browser".
+      The markup below uses the exact class names the components emit, so what
+      you see is what theme.css produces for them. Behaviour that is pure CSS
+      (bevels, hover, :active, focus) is therefore genuinely under test here; the
+      small amount of JS at the bottom only reproduces the interaction the React
+      components implement (menus, group collapse, tab switching).
+
+      Reviewer checklist:
+        - Nothing is rounded, anywhere. Not one pixel.
+        - No online/offline/idle/away indicator exists (SPEC.md §7).
+        - No chat bubbles; plain text with bold coloured sender names.
+        - The security notice is the loudest thing on the page.
+        - Toggle "Simulate missing Tahoma" in the toolbar: macOS does not ship
+          Tahoma, and Verdana is wider. Nothing may clip or reflow.
+    -->
+
+    <link rel="stylesheet" href="theme.css" />
+
+    <style>
+      /* Showcase page furniture only — none of this ships in the app. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #5a7fa8;
+        background-image: linear-gradient(180deg, #4a6f98 0%, #6d97c0 100%);
+        min-height: 100%;
+      }
+
+      body {
+        font-family: Verdana, Geneva, sans-serif;
+        font-size: 12px;
+        color: #fff;
+        padding: 0 0 60px;
+      }
+
+      /* Font-fallback test: pretend Tahoma is not installed. */
+      body.no-tahoma {
+        --aim-font-ui: Verdana, Geneva, sans-serif;
+        --aim-font-msg: Verdana, Geneva, sans-serif;
+      }
+
+      .sc-bar {
+        position: sticky;
+        top: 0;
+        z-index: 900;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        padding: 8px 16px;
+        background: #23405e;
+        border-bottom: 2px solid #16293c;
+      }
+
+      .sc-bar h1 {
+        margin: 0;
+        font-size: 14px;
+        letter-spacing: 0.4px;
+      }
+
+      .sc-bar label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .sc-note {
+        font-size: 11px;
+        opacity: 0.75;
+      }
+
+      .sc-wrap {
+        padding: 18px 16px 0;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+
+      .sc-section {
+        margin: 0 0 26px;
+      }
+
+      .sc-section > h2 {
+        font-size: 13px;
+        margin: 0 0 3px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+      }
+
+      .sc-section > p {
+        margin: 0 0 10px;
+        font-size: 11px;
+        line-height: 1.5;
+        opacity: 0.85;
+        max-width: 78ch;
+      }
+
+      .sc-section > p b {
+        color: #ffe680;
+      }
+
+      .sc-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: flex-start;
+      }
+
+      .sc-card {
+        background: #ece9d8;
+        color: #000;
+        border: 2px outset #ece9d8;
+        padding: 8px;
+      }
+
+      .sc-card > h3 {
+        margin: 0 0 6px;
+        font-family: Verdana, Geneva, sans-serif;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #4a4a3a;
+        border-bottom: 1px solid #c9c5b0;
+        padding-bottom: 3px;
+      }
+
+      .sc-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        align-items: flex-start;
+      }
+
+      .sc-inline {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      /* Fixed-size hosts so the windows show at realistic dimensions. */
+      .sc-host-buddylist {
+        width: 210px;
+        height: 470px;
+        display: flex;
+      }
+
+      .sc-host-im {
+        width: 452px;
+        height: 400px;
+        display: flex;
+      }
+
+      .sc-host-im--wide {
+        width: 520px;
+        height: 480px;
+      }
+
+      .sc-host-signon {
+        width: 302px;
+        display: flex;
+      }
+
+      .sc-host-buddylist > .aim-window,
+      .sc-host-im > .aim-window,
+      .sc-host-signon > .aim-window {
+        flex: 1 1 auto;
+        width: auto;
+        height: auto;
+      }
+
+      /* Ruler used to prove the tight rows survive the Verdana fallback. */
+      .sc-ruler {
+        position: relative;
+      }
+
+      body.show-ruler .aim-buddy,
+      body.show-ruler .aim-group__header {
+        outline: 1px solid rgba(255, 0, 0, 0.45);
+        outline-offset: -1px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="sc-bar">
+      <h1>AIM 5.1 / Windows XP component showcase</h1>
+      <label>
+        <input type="checkbox" id="sc-tahoma" />
+        Simulate missing Tahoma (macOS default &rarr; Verdana)
+      </label>
+      <label>
+        <input type="checkbox" id="sc-aliased" />
+        Aliased text (period-accurate, harsh on Retina)
+      </label>
+      <label>
+        <input type="checkbox" id="sc-ruler" />
+        Outline tight rows
+      </label>
+      <label>
+        <input type="checkbox" id="sc-inactive" />
+        Inactive window chrome
+      </label>
+      <span class="sc-note">Static page &middot; no build, no network</span>
+    </div>
+
+    <div class="sc-wrap aim-root" id="sc-root">
+      <!-- ================================================================= -->
+      <section class="sc-section">
+        <h2>1 &middot; Window chrome</h2>
+        <p>
+          The app is macOS-only and every window is frameless, so the title bar
+          <b>is the real chrome</b>: it carries <code>-webkit-app-region: drag</code> and the only
+          minimize / maximize / close controls, on the right, Windows-style. Buttons re-declare
+          <code>no-drag</code> so they never become dead zones inside the drag region.
+        </p>
+        <div class="sc-grid">
+          <div class="sc-card" style="width: 340px">
+            <h3>TitleBar &mdash; active / inactive / no maximize</h3>
+            <div class="sc-stack" style="align-items: stretch">
+              <div class="aim-titlebar">
+                <span class="aim-titlebar__icon" data-mark="16"></span>
+                <span class="aim-titlebar__text">CoolBuddy2003</span>
+                <span class="aim-titlebar__buttons">
+                  <button class="aim-titlebar__btn" title="Minimize" data-g="min"></button>
+                  <button class="aim-titlebar__btn" title="Maximize" data-g="max"></button>
+                  <button
+                    class="aim-titlebar__btn aim-titlebar__btn--close"
+                    title="Close"
+                    data-g="close"
+                  ></button>
+                </span>
+              </div>
+              <div class="aim-titlebar aim-titlebar--inactive">
+                <span class="aim-titlebar__icon" data-mark="16"></span>
+                <span class="aim-titlebar__text">Inactive window</span>
+                <span class="aim-titlebar__buttons">
+                  <button class="aim-titlebar__btn" data-g="min"></button>
+                  <button class="aim-titlebar__btn" data-g="max"></button>
+                  <button
+                    class="aim-titlebar__btn aim-titlebar__btn--close"
+                    data-g="close"
+                  ></button>
+                </span>
+              </div>
+              <div class="aim-titlebar">
+                <span class="aim-titlebar__icon" data-mark="16"></span>
+                <span class="aim-titlebar__text">Sign On &mdash; Instant Messenger</span>
+                <span class="aim-titlebar__buttons">
+                  <button class="aim-titlebar__btn" data-g="min"></button>
+                  <button
+                    class="aim-titlebar__btn aim-titlebar__btn--close"
+                    data-g="close"
+                  ></button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="sc-card" style="width: 420px">
+            <h3>MenuBar &mdash; click File / Edit / People / Help</h3>
+            <div class="aim-menubar" data-menubar>
+              <div style="position: relative; display: flex">
+                <button class="aim-menubar__item" data-menu="file">
+                  <span class="aim-menubar__mnemonic">F</span>ile
+                </button>
+                <div class="aim-menu" data-menupanel="file" hidden>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">New Group&hellip;</span
+                    ><span class="aim-menu__accel">&#8984;G</span>
+                  </button>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Add Buddy&hellip;</span
+                    ><span class="aim-menu__accel">&#8984;N</span>
+                  </button>
+                  <div class="aim-menu__sep"></div>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Relink Device&hellip;</span>
+                  </button>
+                  <div class="aim-menu__sep"></div>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Preferences&hellip;</span
+                    ><span class="aim-menu__accel">&#8984;,</span>
+                  </button>
+                  <div class="aim-menu__sep"></div>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Close Window</span
+                    ><span class="aim-menu__accel">&#8984;W</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style="position: relative; display: flex">
+                <button class="aim-menubar__item" data-menu="edit">
+                  <span class="aim-menubar__mnemonic">E</span>dit
+                </button>
+                <div class="aim-menu" data-menupanel="edit" hidden>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Cut</span
+                    ><span class="aim-menu__accel">&#8984;X</span>
+                  </button>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Copy</span
+                    ><span class="aim-menu__accel">&#8984;C</span>
+                  </button>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Paste</span
+                    ><span class="aim-menu__accel">&#8984;V</span>
+                  </button>
+                  <div class="aim-menu__sep"></div>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Find Buddy&hellip;</span
+                    ><span class="aim-menu__accel">&#8984;F</span>
+                  </button>
+                  <div class="aim-menu__sep"></div>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__check" data-g="check"></span>
+                    <span class="aim-menu__label">Show Empty Groups</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style="position: relative; display: flex">
+                <button class="aim-menubar__item" data-menu="people">
+                  <span class="aim-menubar__mnemonic">P</span>eople
+                </button>
+                <!--
+                  In real AIM this menu held "Set Away Message", "Sign Off" and
+                  warn levels. All three are presence. Signal has no presence, so
+                  the slots are absent rather than faked (SPEC.md §7).
+                -->
+                <div class="aim-menu" data-menupanel="people" hidden>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Send Instant Message</span
+                    ><span class="aim-menu__accel">&crarr;</span>
+                  </button>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Get Buddy Info</span
+                    ><span class="aim-menu__accel">&#8984;I</span>
+                  </button>
+                  <div class="aim-menu__sep"></div>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Edit Nickname&hellip;</span>
+                  </button>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">Move To Group&hellip;</span>
+                  </button>
+                  <div class="aim-menu__sep"></div>
+                  <button class="aim-menu__item">
+                    <span class="aim-menu__label">View Safety Number&hellip;</span>
+                  </button>
+                  <div class="aim-menu__sep"></div>
+                  <button class="aim-menu__item" disabled>
+                    <span class="aim-menu__label">(no away status &mdash; none exists)</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style="position: relative; display: flex">
+                <button class="aim-menubar__item" data-menu="help">
+                  <span class="aim-menubar__mnemonic">H</span>elp
+                </button>
+                <div class="aim-menu" data-menupanel="help" hidden>
+                  <button class="aim-menu__item"><span class="aim-menu__label">About</span></button>
+                </div>
+              </div>
+            </div>
+            <p
+              style="
+                font-size: 10px;
+                color: #4a4a3a;
+                margin: 8px 0 0;
+                font-family: var(--aim-font-ui);
+              "
+            >
+              Once one menu is open, hovering a sibling switches to it &mdash; the Windows
+              behaviour. Escape or an outside click closes.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section class="sc-section">
+        <h2>2 &middot; Controls</h2>
+        <p>
+          Chrome faces are <code>border: 2px outset</code>; text entry is
+          <code>border: 2px inset</code> on white. Pressing a button flips its bevel to inset
+          <b>and</b> nudges the label one pixel down-and-right &mdash; that second half is what
+          actually sells the depression. Click and hold to check.
+        </p>
+        <div class="sc-grid">
+          <div class="sc-card">
+            <h3>Button</h3>
+            <div class="sc-stack">
+              <div class="sc-inline">
+                <button class="aim-btn">OK</button>
+                <button class="aim-btn aim-btn--default">Send</button>
+                <button class="aim-btn" disabled>Disabled</button>
+              </div>
+              <div class="sc-inline">
+                <button class="aim-btn aim-btn--small">Small</button>
+                <button class="aim-btn aim-btn--small aim-btn--pressed">Pressed</button>
+                <button class="aim-btn aim-btn--wide">Wide button</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <h3>TextInput / TextArea</h3>
+            <div class="sc-stack">
+              <div class="aim-field">
+                <label class="aim-field__label">Screen name:</label>
+                <input class="aim-input" value="CoolBuddy2003" />
+              </div>
+              <div class="aim-field">
+                <label class="aim-field__label">Disabled:</label>
+                <input class="aim-input" value="read only" disabled />
+              </div>
+              <textarea class="aim-input aim-input--textarea" style="width: 240px">
+Multi-line input. Inset border, white face, no rounding anywhere.</textarea>
+              <input
+                class="aim-input aim-input--mono"
+                style="width: 240px"
+                value="05132 74810 66201 93744"
+              />
+            </div>
+          </div>
+
+          <div class="sc-card">
+            <h3>Checkbox / Radio / Select</h3>
+            <div class="sc-stack">
+              <label class="aim-check">
+                <span class="aim-check__box" data-g="check"></span>
+                <span class="aim-check__label">Save my screen name</span>
+              </label>
+              <label class="aim-check">
+                <span class="aim-check__box"></span>
+                <span class="aim-check__label">Unchecked</span>
+              </label>
+              <label class="aim-check aim-check--disabled">
+                <span class="aim-check__box"></span>
+                <span class="aim-check__label">Disabled option</span>
+              </label>
+              <label class="aim-check">
+                <span class="aim-check__box aim-check__box--radio"><i></i></span>
+                <span class="aim-check__label">Square radio (the corner rule wins)</span>
+              </label>
+              <span class="aim-select" style="width: 170px">
+                <select class="aim-select__native">
+                  <option>Sort by group</option>
+                  <option>Sort alphabetically</option>
+                  <option>Sort by recent message</option>
+                </select>
+                <span class="aim-select__arrow" data-g="arrow"></span>
+              </span>
+              <span class="aim-select aim-select--disabled" style="width: 170px">
+                <select class="aim-select__native" disabled>
+                  <option>Disabled select</option>
+                </select>
+                <span class="aim-select__arrow" data-g="arrow"></span>
+              </span>
+            </div>
+          </div>
+
+          <div class="sc-card" style="width: 300px">
+            <h3>Panel variants &amp; StatusBar</h3>
+            <div class="sc-stack" style="align-items: stretch">
+              <div class="aim-panel">Raised panel &mdash; 2px outset</div>
+              <div class="aim-panel aim-panel--sunken">Sunken well &mdash; 2px inset on white</div>
+              <div class="aim-panel aim-panel--flat">Flat &mdash; hairline</div>
+              <div class="aim-panel aim-panel--group">
+                <div class="aim-panel__title">Groupbox</div>
+                Etched frame with a notched caption.
+              </div>
+              <div class="aim-statusbar">
+                <div class="aim-statusbar__cell aim-statusbar__cell--grow">2/9 unread</div>
+                <div class="aim-statusbar__cell" style="width: 84px; flex: 0 0 auto">Connected</div>
+                <span class="aim-statusbar__grip" data-g="grip"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section class="sc-section">
+        <h2>3 &middot; Buddy list window</h2>
+        <p>
+          Narrow and tall. Rows are 16px with almost no padding &mdash; the density is doing as much
+          work as the colours. <b>There is no presence anywhere in this window:</b> no status icons,
+          no colour-by-availability, no idle time, no away text, and nothing is sorted or grouped by
+          who happens to be reachable. Every buddy glyph is identical by design.
+        </p>
+        <p>
+          <b
+            >The two numbers in <code>Buddies (3/8)</code> are unread / total, not online /
+            total.</b
+          >
+          AIM's original meaning was presence and is unavailable, so the slot was given the most
+          useful message-derived number instead: how many buddies in that group have unread
+          messages. Hover any group header &mdash; the tooltip says so in words, so nobody has to
+          guess.
+        </p>
+        <div class="sc-grid">
+          <div class="sc-host-buddylist">
+            <div class="aim-window aim-buddylist">
+              <div class="aim-titlebar" data-chrome>
+                <span class="aim-titlebar__icon" data-mark="16"></span>
+                <span class="aim-titlebar__text">CoolBuddy2003</span>
+                <span class="aim-titlebar__buttons">
+                  <button class="aim-titlebar__btn" data-g="min"></button>
+                  <button class="aim-titlebar__btn" data-g="max"></button>
+                  <button
+                    class="aim-titlebar__btn aim-titlebar__btn--close"
+                    data-g="close"
+                  ></button>
+                </span>
+              </div>
+
+              <div class="aim-menubar" data-menubar>
+                <div style="position: relative; display: flex">
+                  <button class="aim-menubar__item" data-menu="bl-file">
+                    <span class="aim-menubar__mnemonic">F</span>ile
+                  </button>
+                  <div class="aim-menu" data-menupanel="bl-file" hidden>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">New Group&hellip;</span>
+                    </button>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Add Buddy&hellip;</span>
+                    </button>
+                    <div class="aim-menu__sep"></div>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Preferences&hellip;</span>
+                    </button>
+                  </div>
+                </div>
+                <div style="position: relative; display: flex">
+                  <button class="aim-menubar__item" data-menu="bl-edit">
+                    <span class="aim-menubar__mnemonic">E</span>dit
+                  </button>
+                  <div class="aim-menu" data-menupanel="bl-edit" hidden>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Find Buddy&hellip;</span>
+                    </button>
+                  </div>
+                </div>
+                <div style="position: relative; display: flex">
+                  <button class="aim-menubar__item" data-menu="bl-people">
+                    <span class="aim-menubar__mnemonic">P</span>eople
+                  </button>
+                  <div class="aim-menu" data-menupanel="bl-people" hidden>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Send Instant Message</span>
+                    </button>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Edit Nickname&hellip;</span>
+                    </button>
+                  </div>
+                </div>
+                <div style="position: relative; display: flex">
+                  <button class="aim-menubar__item" data-menu="bl-help">
+                    <span class="aim-menubar__mnemonic">H</span>elp
+                  </button>
+                  <div class="aim-menu" data-menupanel="bl-help" hidden>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">About</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="aim-window__body">
+                <div class="aim-buddylist__banner">
+                  <span data-mark="22"></span>
+                  <span class="aim-buddylist__banner-text">
+                    <span class="aim-buddylist__screenname">CoolBuddy2003</span>
+                    <!-- Link state of THIS device. Not anyone's availability. -->
+                    <span class="aim-buddylist__sublabel">Connected</span>
+                  </span>
+                </div>
+
+                <div class="aim-buddylist__tree" role="tree">
+                  <div class="aim-group" data-group>
+                    <div
+                      class="aim-group__header"
+                      title="Buddies: 2 of 5 buddies have unread messages. (This client shows no online/offline state — Signal does not transmit any.)"
+                    >
+                      <span class="aim-group__expander" data-g="tri-open"></span>
+                      <span class="aim-group__name">Buddies</span>
+                      <span class="aim-group__count">(2/5)</span>
+                    </div>
+                    <div class="aim-group__children">
+                      <div class="aim-buddy aim-buddy--selected">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name">bmarshall</span>
+                        <span class="aim-buddy__unread">3</span>
+                      </div>
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name aim-buddy__name--nick">Squeaky</span>
+                        <span class="aim-buddy__realname">(Priya R.)</span>
+                      </div>
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name">Dana Whitfield</span>
+                        <span class="aim-buddy__tag" title="Disappearing messages on"
+                          >&#10199;</span
+                        >
+                        <span class="aim-buddy__unread">12</span>
+                      </div>
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name">Marco Delgado-Fitzgerald</span>
+                      </div>
+                      <div class="aim-buddy aim-buddy--unregistered">
+                        <span class="aim-buddy__icon" data-g="buddy-off"></span>
+                        <span class="aim-buddy__name">old.number</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="aim-group" data-group>
+                    <div
+                      class="aim-group__header"
+                      title="Work: 0 of 3 buddies have unread messages. (This client shows no online/offline state — Signal does not transmit any.)"
+                    >
+                      <span class="aim-group__expander" data-g="tri-open"></span>
+                      <span class="aim-group__name">Work</span>
+                      <span class="aim-group__count">(0/3)</span>
+                    </div>
+                    <div class="aim-group__children">
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name">Ana Souza</span>
+                      </div>
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name">tkarlsson</span>
+                      </div>
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name aim-buddy__name--nick">The Boss</span>
+                        <span class="aim-buddy__realname">(J. Okonkwo)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="aim-group" data-group>
+                    <div
+                      class="aim-group__header"
+                      title="Family: 1 of 1 buddy has unread messages. (This client shows no online/offline state — Signal does not transmit any.)"
+                    >
+                      <span class="aim-group__expander" data-g="tri-closed"></span>
+                      <span class="aim-group__name">Family</span>
+                      <span class="aim-group__count">(1/1)</span>
+                    </div>
+                    <div class="aim-group__children" hidden>
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name">Mum</span>
+                        <span class="aim-buddy__unread">1</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="aim-group" data-group>
+                    <div
+                      class="aim-group__header"
+                      title="Never Messaged: 0 of 0 buddies have unread messages. A roster entry with zero messages is valid and renders normally (SPEC.md §6)."
+                    >
+                      <span class="aim-group__expander" data-g="tri-open"></span>
+                      <span class="aim-group__name">Never Messaged</span>
+                      <span class="aim-group__count">(0/0)</span>
+                    </div>
+                    <div class="aim-group__children">
+                      <div class="aim-group__empty">No buddies in this group</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="aim-buddylist__footer">
+                  <button class="aim-btn aim-btn--small">IM</button>
+                  <button class="aim-btn aim-btn--small">Info</button>
+                  <button class="aim-btn aim-btn--small">Setup</button>
+                </div>
+              </div>
+
+              <div class="aim-statusbar">
+                <div
+                  class="aim-statusbar__cell aim-statusbar__cell--grow"
+                  title="3 of 9 buddies have unread messages. This client shows no online/offline state."
+                >
+                  3/9 unread
+                </div>
+                <div class="aim-statusbar__cell" style="width: 84px; flex: 0 0 auto">Connected</div>
+                <span class="aim-statusbar__grip" data-g="grip"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="sc-card" style="width: 320px">
+            <h3>Row states, in isolation</h3>
+            <div class="aim-panel aim-panel--sunken" style="padding: 2px 0">
+              <div class="aim-buddy">
+                <span class="aim-buddy__icon" data-g="buddy"></span>
+                <span class="aim-buddy__name">plain row</span>
+              </div>
+              <div class="aim-buddy aim-buddy--selected">
+                <span class="aim-buddy__icon" data-g="buddy"></span>
+                <span class="aim-buddy__name">selected</span>
+              </div>
+              <div class="aim-buddy">
+                <span class="aim-buddy__icon" data-g="buddy"></span>
+                <span class="aim-buddy__name aim-buddy__name--nick">nickname override</span>
+                <span class="aim-buddy__realname">(real name)</span>
+              </div>
+              <div class="aim-buddy">
+                <span class="aim-buddy__icon" data-g="buddy"></span>
+                <span class="aim-buddy__name">with unread</span>
+                <span class="aim-buddy__unread">7</span>
+              </div>
+              <div class="aim-buddy">
+                <span class="aim-buddy__icon" data-g="buddy"></span>
+                <span class="aim-buddy__name">99+ unread</span>
+                <span class="aim-buddy__unread">99+</span>
+              </div>
+              <div class="aim-buddy aim-buddy--unregistered">
+                <span class="aim-buddy__icon" data-g="buddy-off"></span>
+                <span class="aim-buddy__name">unregistered</span>
+              </div>
+              <div class="aim-buddy aim-buddy--blocked">
+                <span class="aim-buddy__icon" data-g="buddy-off"></span>
+                <span class="aim-buddy__name">blocked</span>
+              </div>
+              <div class="aim-buddy">
+                <span class="aim-buddy__icon" data-g="buddy"></span>
+                <span class="aim-buddy__name"
+                  >a very long display name that has to truncate rather than clip</span
+                >
+              </div>
+            </div>
+            <p
+              style="
+                font-size: 10px;
+                color: #4a4a3a;
+                margin: 8px 0 0;
+                font-family: var(--aim-font-ui);
+              "
+            >
+              Every row is 16px tall and every text run truncates with an ellipsis, so the wider
+              Verdana fallback degrades to truncation rather than to clipping or reflow. Toggle
+              &ldquo;Outline tight rows&rdquo; with Tahoma simulated off to verify.
+            </p>
+            <div class="sc-inline" style="margin-top: 8px">
+              <span style="font-family: var(--aim-font-ui); font-size: 11px">Expander styles:</span>
+              <span data-g="tri-open"></span>
+              <span data-g="tri-closed"></span>
+              <span data-g="box-open"></span>
+              <span data-g="box-closed"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section class="sc-section">
+        <h2>4 &middot; IM window</h2>
+        <p>
+          History pane on top, formatting toolbar in the middle, input pane below, Send
+          bottom-right.
+          <b>No chat bubbles anywhere</b> &mdash; plain flowed text, inline
+          <code>(10:47:03&nbsp;PM)</code> timestamps, bold coloured sender names, own text red and
+          theirs blue, which were AIM's own defaults. Nothing is right-aligned;
+          alignment-as-authorship is a much later idea.
+        </p>
+        <p>
+          The status bar carries the typing indicator. <b>Typing is not presence</b> &mdash; it is a
+          real per-message protocol event, so it is built. What is <i>not</i> there: any claim about
+          whether the other person is online, idle, or away.
+        </p>
+        <div class="sc-grid">
+          <div class="sc-host-im sc-host-im--wide">
+            <div class="aim-window aim-im">
+              <div class="aim-titlebar" data-chrome>
+                <span class="aim-titlebar__icon" data-mark="16"></span>
+                <span class="aim-titlebar__text">Dana Whitfield</span>
+                <span class="aim-titlebar__buttons">
+                  <button class="aim-titlebar__btn" data-g="min"></button>
+                  <button class="aim-titlebar__btn" data-g="max"></button>
+                  <button
+                    class="aim-titlebar__btn aim-titlebar__btn--close"
+                    data-g="close"
+                  ></button>
+                </span>
+              </div>
+
+              <div class="aim-menubar" data-menubar>
+                <div style="position: relative; display: flex">
+                  <button class="aim-menubar__item" data-menu="im-file">
+                    <span class="aim-menubar__mnemonic">F</span>ile
+                  </button>
+                  <div class="aim-menu" data-menupanel="im-file" hidden>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Save Conversation&hellip;</span
+                      ><span class="aim-menu__accel">&#8984;S</span>
+                    </button>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Send File&hellip;</span>
+                    </button>
+                    <div class="aim-menu__sep"></div>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Close Window</span
+                      ><span class="aim-menu__accel">&#8984;W</span>
+                    </button>
+                  </div>
+                </div>
+                <div style="position: relative; display: flex">
+                  <button class="aim-menubar__item" data-menu="im-edit">
+                    <span class="aim-menubar__mnemonic">E</span>dit
+                  </button>
+                  <div class="aim-menu" data-menupanel="im-edit" hidden>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Copy</span
+                      ><span class="aim-menu__accel">&#8984;C</span>
+                    </button>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Select All</span
+                      ><span class="aim-menu__accel">&#8984;A</span>
+                    </button>
+                  </div>
+                </div>
+                <div style="position: relative; display: flex">
+                  <button class="aim-menubar__item" data-menu="im-people">
+                    <span class="aim-menubar__mnemonic">P</span>eople
+                  </button>
+                  <div class="aim-menu" data-menupanel="im-people" hidden>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">View Safety Number&hellip;</span>
+                    </button>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">Disappearing Messages&hellip;</span>
+                    </button>
+                  </div>
+                </div>
+                <div style="position: relative; display: flex">
+                  <button class="aim-menubar__item" data-menu="im-help">
+                    <span class="aim-menubar__mnemonic">H</span>elp
+                  </button>
+                  <div class="aim-menu" data-menupanel="im-help" hidden>
+                    <button class="aim-menu__item">
+                      <span class="aim-menu__label">About</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="aim-window__body">
+                <div class="aim-im__logwrap">
+                  <div class="aim-im__log aim-log">
+                    <div class="aim-msg__divider">Yesterday</div>
+
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(10:44:12 PM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-msg__body">hey, you around?</span>
+                      </div>
+                    </div>
+
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(10:44:51 PM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--me">CoolBuddy2003:</span>
+                        <span class="aim-msg__body">yeah what's up</span>
+                        <span class="aim-msg__receipt">read</span>
+                      </div>
+                    </div>
+
+                    <!-- edit marker: body is always CURRENT text -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(10:45:03 PM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-msg__body">can you send me the thing by friday</span>
+                        <span class="aim-msg__edit" title="Edited at 10:45:40 PM">(edited)</span>
+                      </div>
+                    </div>
+
+                    <!-- quoted reply stub + inline reactions -->
+                    <div class="aim-msg">
+                      <div class="aim-msg__quote">
+                        <span class="aim-msg__quote-author">Dana: </span>
+                        <span class="aim-msg__quote-text">can you send me the thing by friday</span>
+                      </div>
+                      <div>
+                        <span class="aim-msg__time">(10:45:29 PM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--me">CoolBuddy2003:</span>
+                        <span class="aim-msg__body">consider it done</span>
+                        <span class="aim-msg__reactions">
+                          <span class="aim-msg__reaction">[&#9829; from Dana]</span>
+                          <span class="aim-msg__reaction">[&#128077; from Priya and Marco]</span>
+                        </span>
+                        <span class="aim-msg__receipt">delivered</span>
+                      </div>
+                    </div>
+
+                    <div class="aim-msg__divider">Today</div>
+
+                    <!-- quote whose original is gone locally -->
+                    <div class="aim-msg">
+                      <div class="aim-msg__quote">
+                        <span class="aim-msg__quote-author">Dana: </span>
+                        <span class="aim-msg__quote-missing"
+                          >(original message not available on this computer)</span
+                        >
+                      </div>
+                      <div>
+                        <span class="aim-msg__time">(9:02:11 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-msg__body">this one</span>
+                      </div>
+                    </div>
+
+                    <!-- attachment: labelled chip -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:03:40 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-msg__body">here you go</span>
+                      </div>
+                      <div class="aim-msg__chip">
+                        <span data-g="clip"></span>
+                        <span class="aim-msg__chip-link">q3-budget-final-FINAL.xls</span>
+                        <span class="aim-msg__chip-meta">184 KB</span>
+                      </div>
+                    </div>
+
+                    <!-- attachment not downloaded yet -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:03:52 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-dim">sent a file</span>
+                      </div>
+                      <div class="aim-msg__chip">
+                        <span data-g="clip"></span>
+                        <span class="aim-msg__chip-link">scan_0042.pdf</span>
+                        <span class="aim-msg__chip-meta">2.4 MB &middot; not downloaded</span>
+                      </div>
+                    </div>
+
+                    <!-- view-once: refused, never displayed, never persisted -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:05:00 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                      </div>
+                      <div class="aim-msg__chip aim-msg__viewonce">
+                        <span data-g="clip"></span>
+                        <span>
+                          <b>View-once media.</b> Not shown on this computer and not saved to disk
+                          &mdash; open it on your phone.
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- voice note fallback -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:06:18 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-dim">sent a voice message</span>
+                      </div>
+                      <div class="aim-msg__chip">
+                        <span data-g="voice"></span>
+                        <span>Voice message &mdash; <b>unsupported here, open on phone</b></span>
+                      </div>
+                    </div>
+
+                    <!-- sticker placeholder -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:07:02 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-dim">sent a sticker</span>
+                      </div>
+                      <div class="aim-msg__sticker" title="Sticker">
+                        <span><span data-g="sticker"></span>sticker</span>
+                      </div>
+                    </div>
+
+                    <!-- tombstone: deleted for everyone -->
+                    <div class="aim-msg aim-msg__system aim-msg__tombstone">
+                      <span class="aim-msg__time">(9:08:44 AM)</span>
+                      <span data-g="tomb"></span> Dana unsent a message.
+                    </div>
+
+                    <!-- call notice: never stay silent -->
+                    <div class="aim-msg aim-msg__system aim-msg__call">
+                      <span class="aim-msg__time">(9:10:01 AM)</span>
+                      <span data-g="call"></span>
+                      <span
+                        >Call from Dana &mdash; <b>answer on phone.</b> Calls are not supported in
+                        this client.</span
+                      >
+                    </div>
+
+                    <!-- disappearing timer, message-level marker -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:12:30 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-msg__body">this one disappears</span>
+                        <span class="aim-msg__edit" title="Disappears at 9:22:30 AM">&#10199;</span>
+                      </div>
+                    </div>
+
+                    <!-- failed send -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:14:00 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--me">CoolBuddy2003:</span>
+                        <span class="aim-msg__body">did that go through?</span>
+                        <span class="aim-msg__receipt aim-msg__receipt--failed">NOT SENT</span>
+                      </div>
+                    </div>
+
+                    <!-- sync message from the user's own phone -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:15:22 AM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--me">CoolBuddy2003:</span>
+                        <span class="aim-msg__body"
+                          >(typed on my phone, arrives here as a sync message)</span
+                        >
+                        <span class="aim-msg__receipt">sent</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="aim-toolbar aim-fmt" role="toolbar">
+                  <span class="aim-select aim-select--disabled aim-fmt__font">
+                    <select class="aim-select__native" disabled>
+                      <option>Tahoma</option>
+                    </select>
+                    <span class="aim-select__arrow" data-g="arrow"></span>
+                  </span>
+                  <span class="aim-select aim-select--disabled aim-fmt__size">
+                    <select class="aim-select__native" disabled>
+                      <option>11</option>
+                    </select>
+                    <span class="aim-select__arrow" data-g="arrow"></span>
+                  </span>
+                  <span class="aim-toolbar__sep"></span>
+                  <button class="aim-toolbar__btn aim-toolbar__btn--on" title="Bold">
+                    <b>B</b>
+                  </button>
+                  <button class="aim-toolbar__btn" title="Italic"><i>I</i></button>
+                  <button class="aim-toolbar__btn" title="Underline"><u>U</u></button>
+                  <button class="aim-toolbar__btn" title="Strikethrough"><s>S</s></button>
+                  <button class="aim-toolbar__btn" title="Monospace">
+                    <span style="font-family: var(--aim-font-mono); font-size: 11px">M</span>
+                  </button>
+                  <span class="aim-toolbar__sep"></span>
+                  <button
+                    class="aim-toolbar__btn"
+                    disabled
+                    title="Not transmitted — the protocol carries no colour information"
+                  >
+                    <span class="aim-fmt__stack"
+                      ><b>A</b><span class="aim-fmt__swatch" style="background: #000"></span
+                    ></span>
+                  </button>
+                  <button class="aim-toolbar__btn" disabled title="Not transmitted">
+                    <span class="aim-fmt__stack"
+                      ><b style="background: #ffc; padding: 0 2px">A</b
+                      ><span class="aim-fmt__swatch" style="background: #fff"></span
+                    ></span>
+                  </button>
+                  <span class="aim-toolbar__sep"></span>
+                  <button
+                    class="aim-toolbar__btn"
+                    title="Insert emoticon"
+                    style="width: 28px; font-family: var(--aim-font-ui); font-size: 11px"
+                  >
+                    :-)
+                  </button>
+                  <button class="aim-toolbar__btn" title="Quote selection" style="font-size: 13px">
+                    &#10077;
+                  </button>
+                  <button class="aim-toolbar__btn" title="Attach file" style="font-size: 12px">
+                    &#128206;
+                  </button>
+                </div>
+
+                <div class="aim-im__compose">
+                  <textarea class="aim-input aim-input--textarea aim-im__input">
+sounds good, sending now</textarea>
+                  <div class="aim-im__actions">
+                    <button class="aim-btn aim-btn--small">Attach&hellip;</button>
+                    <span
+                      class="aim-dim"
+                      title="Messages in this conversation disappear after 1 week"
+                      >&#10199; 1w</span
+                    >
+                    <span class="aim-im__actions-spacer"></span>
+                    <button class="aim-btn aim-btn--default aim-btn--wide">Send</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="aim-statusbar">
+                <div class="aim-statusbar__cell aim-statusbar__cell--grow">
+                  <span class="aim-typing"
+                    ><span data-g="typing"></span>Dana is typing&hellip;</span
+                  >
+                </div>
+                <div class="aim-statusbar__cell" style="width: 96px; flex: 0 0 auto">
+                  <span data-g="buddy-11"></span><span>+1 555 0142</span>
+                </div>
+                <span class="aim-statusbar__grip" data-g="grip"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="sc-card" style="width: 380px">
+            <h3>IM window &mdash; cannot send</h3>
+            <p
+              style="
+                font-family: var(--aim-font-ui);
+                font-size: 10px;
+                color: #4a4a3a;
+                margin: 0 0 6px;
+              "
+            >
+              Unregistered contacts still render normally in the roster and the log (SPEC.md §6)
+              &mdash; only sending is refused, with the reason stated.
+            </p>
+            <div class="aim-im__compose" style="background: #ece9d8">
+              <div class="aim-im__warning">
+                old.number is no longer registered. Messages cannot be delivered.
+              </div>
+              <textarea class="aim-input aim-input--textarea aim-im__input" disabled></textarea>
+              <div class="aim-im__actions">
+                <button class="aim-btn aim-btn--small" disabled>Attach&hellip;</button>
+                <span class="aim-im__actions-spacer"></span>
+                <button class="aim-btn aim-btn--default aim-btn--wide" disabled>Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section class="sc-section">
+        <h2>5 &middot; Security notices</h2>
+        <p>
+          <b
+            >SPEC.md §8: when retro authenticity conflicts with a security signal, security wins.</b
+          >
+          These are styled for 2003 &mdash; bevelled panel, hard edges, hazard rule &mdash; but they
+          are deliberately the loudest thing on screen, and <b>there is no prop that hides them</b>.
+          &ldquo;I understand&rdquo; removes the buttons only; the notice stays in the conversation
+          because the event stays in history.
+        </p>
+        <p>
+          The wording never reassures. A safety-number change has a benign cause and a hostile one,
+          this client cannot tell them apart, and so it says exactly that.
+        </p>
+        <div class="sc-grid">
+          <div style="width: 520px" class="sc-stack">
+            <div class="aim-security aim-security--blocking" role="alert">
+              <div class="aim-security__bar"></div>
+              <div class="aim-security__inner">
+                <span class="aim-security__icon" data-g="sec"></span>
+                <div class="aim-security__content">
+                  <div class="aim-security__title">
+                    Safety number changed<span style="font-weight: normal">
+                      &middot; 9:16:04 AM</span
+                    >
+                  </div>
+                  <div class="aim-security__body">
+                    Your safety number with <b>Dana Whitfield</b> has changed. This happens when
+                    someone reinstalls the app or switches to a new phone &mdash; and it is also
+                    what interception looks like. <b>This client cannot tell the two apart.</b>
+                    Compare the number below with Dana Whitfield in person or over a call you
+                    started yourself before sending anything sensitive.
+                  </div>
+                  <div class="aim-security__fingerprint aim-selectable">
+                    05132 74810 66201 93744<br />28850 61397 04422 18063<br />55719 43028 87116
+                    92504
+                  </div>
+                  <div class="aim-security__actions">
+                    <button class="aim-btn aim-btn--small aim-btn--default">Verify&hellip;</button>
+                    <button class="aim-btn aim-btn--small">What is this?</button>
+                    <button
+                      class="aim-btn aim-btn--small"
+                      title="Hides these buttons. The notice itself stays in the conversation."
+                    >
+                      I understand
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="aim-security aim-security--blocking" role="alert">
+              <div class="aim-security__bar"></div>
+              <div class="aim-security__inner">
+                <span class="aim-security__icon" data-g="sec"></span>
+                <div class="aim-security__content">
+                  <div class="aim-security__title">
+                    Message not sent &mdash; identity unresolved
+                  </div>
+                  <div class="aim-security__body">
+                    Nothing was sent to <b>Dana Whitfield</b>. Their identity key changed and has
+                    not been accepted, so the message was held rather than delivered to a key you
+                    have not checked. Review the safety number, then send again.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="aim-security">
+              <div class="aim-security__bar"></div>
+              <div class="aim-security__inner">
+                <span class="aim-security__icon" data-g="sec"></span>
+                <div class="aim-security__content">
+                  <div class="aim-security__title">Safety number not verified</div>
+                  <div class="aim-security__body">
+                    You have not verified your safety number with <b>Marco Delgado-Fitzgerald</b>.
+                    Messages are still end-to-end encrypted, but nothing has confirmed that the
+                    other end is really Marco Delgado-Fitzgerald.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="aim-security">
+              <div class="aim-security__bar"></div>
+              <div class="aim-security__inner">
+                <span class="aim-security__icon" data-g="sec"></span>
+                <div class="aim-security__content">
+                  <div class="aim-security__title">Disappearing messages changed</div>
+                  <div class="aim-security__body">
+                    <b>Dana Whitfield</b> set disappearing messages to <b>1 week</b>. Messages in
+                    this conversation are removed from this computer when the timer runs out.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section class="sc-section">
+        <h2>6 &middot; Sign-on window &mdash; all four connection states</h2>
+        <p>
+          The 2003 sign-on window had a screen name and a password. Neither exists here &mdash; this
+          client links as a secondary device and never sees a credential &mdash; so the shape is
+          kept and a QR code takes the password box's place. The banner mark is
+          <b>original artwork</b>: no running man, no AOL wordmark, nothing extracted (SPEC.md §9,
+          §10). The product name is host-supplied rather than hardcoded to anything trademarked.
+        </p>
+        <p>
+          All four states from SPEC.md §8 are shown. The indicator reports <i>this device's</i> link
+          to the service &mdash; it is not a status dropdown, and there is nothing here to set
+          yourself &ldquo;away&rdquo; with.
+        </p>
+        <div class="sc-grid" id="sc-signons"></div>
+      </section>
+    </div>
+
+    <script>
+      /* ---------------------------------------------------------------------
+       * Showcase behaviour only. The React components implement all of this
+       * themselves; this is here so the static page is reviewable.
+       * ------------------------------------------------------------------ */
+
+      // ---- Original inline SVG artwork, mirroring icons.tsx ----------------
+      const SVG = {
+        mark: (s) => `<svg viewBox="0 0 16 16" width="${s}" height="${s}" style="display:block">
+          <rect width="16" height="16" fill="#FFCC00"/>
+          <rect width="16" height="1" fill="#FFE680"/><rect width="1" height="16" fill="#FFE680"/>
+          <rect y="15" width="16" height="1" fill="#8A6D00"/><rect x="15" width="1" height="16" fill="#8A6D00"/>
+          <rect x="2" y="7" width="12" height="7" fill="#fff"/>
+          <path d="M2 8 L8 12 L14 8" fill="none" stroke="#1A1A1A"/>
+          <rect x="2" y="7" width="12" height="7" fill="none" stroke="#1A1A1A"/>
+          <path d="M5 5 A4 4 0 0 1 11 5" fill="none" stroke="#1A1A1A" stroke-width="1.4"/>
+          <path d="M3 3.5 A6.5 6.5 0 0 1 13 3.5" fill="none" stroke="#1A1A1A" stroke-width="1.2" opacity=".75"/>
+          <rect x="7" y="4" width="2" height="2" fill="#1A1A1A"/>
+        </svg>`,
+        buddy: (s) => `<svg viewBox="0 0 12 12" width="${s}" height="${s}" style="display:block">
+          <rect width="12" height="12" fill="#fff" stroke="#7A7A6A"/>
+          <rect x="4" y="2" width="4" height="4" fill="#5B6B8C"/>
+          <path d="M2 11 L2 9 Q2 7 6 7 Q10 7 10 9 L10 11 Z" fill="#5B6B8C"/>
+        </svg>`,
+        buddyOff: () => `<svg viewBox="0 0 12 12" width="12" height="12" style="display:block">
+          <rect width="12" height="12" fill="#F2F2F2" stroke="#A8A89A"/>
+          <rect x="4" y="2" width="4" height="4" fill="#A0A0A0"/>
+          <path d="M2 11 L2 9 Q2 7 6 7 Q10 7 10 9 L10 11 Z" fill="#A0A0A0"/>
+          <path d="M1 11 L11 1" stroke="#B00000" stroke-width="1.4"/>
+        </svg>`,
+        triOpen: () =>
+          `<svg viewBox="0 0 11 11" width="11" height="11" style="display:block"><path d="M1.5 3.5 L9.5 3.5 L5.5 8.5 Z" fill="#2A2A2A"/></svg>`,
+        triClosed: () =>
+          `<svg viewBox="0 0 11 11" width="11" height="11" style="display:block"><path d="M3.5 1.5 L8.5 5.5 L3.5 9.5 Z" fill="#2A2A2A"/></svg>`,
+        boxOpen: () =>
+          `<svg viewBox="0 0 11 11" width="11" height="11" style="display:block"><rect x=".5" y=".5" width="10" height="10" fill="#fff" stroke="#6B6B5C"/><rect x="2" y="5" width="7" height="1"/></svg>`,
+        boxClosed: () =>
+          `<svg viewBox="0 0 11 11" width="11" height="11" style="display:block"><rect x=".5" y=".5" width="10" height="10" fill="#fff" stroke="#6B6B5C"/><rect x="2" y="5" width="7" height="1"/><rect x="5" y="2" width="1" height="7"/></svg>`,
+        min: () =>
+          `<svg viewBox="0 0 10 10" width="10" height="10"><rect x="2" y="6" width="6" height="2" fill="currentColor"/></svg>`,
+        max: () =>
+          `<svg viewBox="0 0 10 10" width="10" height="10"><rect x="1" y="1" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="1" y="1" width="8" height="2.4" fill="currentColor"/></svg>`,
+        close: () =>
+          `<svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 2 L8 8 M8 2 L2 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg>`,
+        check: () =>
+          `<svg viewBox="0 0 9 9" width="9" height="9" style="display:block"><path d="M1 4.5 L3.5 7 L8 1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg>`,
+        arrow: () =>
+          `<svg viewBox="0 0 7 4" width="7" height="4"><path d="M0 0 L7 0 L3.5 4 Z"/></svg>`,
+        clip: () =>
+          `<svg viewBox="0 0 12 12" width="12" height="12" style="display:block"><path d="M8.5 3 L8.5 8.5 A2.5 2.5 0 0 1 3.5 8.5 L3.5 2.5 A1.5 1.5 0 0 1 6.5 2.5 L6.5 8" fill="none" stroke="#3A3A3A" stroke-width="1.3"/></svg>`,
+        voice: () =>
+          `<svg viewBox="0 0 12 12" width="12" height="12" style="display:block"><path d="M1 4.5 L3.5 4.5 L6.5 2 L6.5 10 L3.5 7.5 L1 7.5 Z" fill="#3A3A3A"/><path d="M8 4 A3 3 0 0 1 8 8" fill="none" stroke="#3A3A3A" stroke-width="1.2"/></svg>`,
+        call: () =>
+          `<svg viewBox="0 0 12 12" width="12" height="12" style="display:block"><path d="M2 2 L4.5 2 L5.5 4.5 L4 5.5 A5 5 0 0 0 6.5 8 L7.5 6.5 L10 7.5 L10 10 A1 1 0 0 1 9 11 A9 9 0 0 1 1 3 A1 1 0 0 1 2 2 Z" fill="#004A7A"/></svg>`,
+        sticker: () =>
+          `<svg viewBox="0 0 24 24" width="24" height="24" style="display:block;margin:0 auto"><rect x="2" y="2" width="20" height="20" fill="#fff" stroke="#8A8A7A"/><path d="M16 2 L22 8 L16 8 Z" fill="#D8D4C2" stroke="#8A8A7A"/><rect x="6" y="10" width="3" height="3" fill="#5B6B8C"/><rect x="15" y="10" width="3" height="3" fill="#5B6B8C"/><path d="M6 16 L12 19 L18 16" fill="none" stroke="#5B6B8C" stroke-width="1.5"/></svg>`,
+        tomb: () =>
+          `<svg viewBox="0 0 11 11" width="11" height="11" style="display:inline-block;vertical-align:-1px"><rect x="1" y="2" width="9" height="7" fill="#EDEDED" stroke="#8A8A8A"/><path d="M2.5 4.5 L8.5 4.5 M2.5 6.5 L6.5 6.5" stroke="#B0B0B0"/><path d="M.5 10.5 L10.5 .5" stroke="#8A8A8A"/></svg>`,
+        sec: () =>
+          `<svg viewBox="0 0 22 22" width="22" height="22" style="display:block"><path d="M11 1 L20 4 L20 11 Q20 18 11 21 Q2 18 2 11 L2 4 Z" fill="#A80000" stroke="#5A0000"/><path d="M11 3 L18 5.3 L18 11 Q18 16.6 11 19 Q4 16.6 4 11 L4 5.3 Z" fill="#D42020"/><rect x="10" y="6" width="2" height="8" fill="#fff"/><rect x="10" y="15" width="2" height="2" fill="#fff"/></svg>`,
+        typing: () =>
+          `<svg viewBox="0 0 11 11" width="11" height="11" style="display:block"><path d="M1 10 L2 7 L8 1 L10 3 L4 9 Z" fill="#FFCC00" stroke="#6B6B5C" stroke-width=".9"/><path d="M8 1 L10 3" stroke="#6B6B5C" stroke-width=".9"/></svg>`,
+        grip: () =>
+          `<svg viewBox="0 0 12 12" width="12" height="12">${[
+            [9, 2],
+            [9, 5],
+            [6, 5],
+            [9, 8],
+            [6, 8],
+            [3, 8],
+          ]
+            .map(
+              ([x, y]) =>
+                `<rect x="${x}" y="${y}" width="2" height="2" fill="#fff"/><rect x="${x}" y="${y}" width="1.4" height="1.4" fill="#808080"/>`
+            )
+            .join('')}</svg>`,
+      };
+
+      const GLYPHS = {
+        min: SVG.min,
+        max: SVG.max,
+        close: SVG.close,
+        check: SVG.check,
+        arrow: SVG.arrow,
+        buddy: () => SVG.buddy(12),
+        'buddy-11': () => SVG.buddy(11),
+        'buddy-off': SVG.buddyOff,
+        'tri-open': SVG.triOpen,
+        'tri-closed': SVG.triClosed,
+        'box-open': SVG.boxOpen,
+        'box-closed': SVG.boxClosed,
+        clip: SVG.clip,
+        voice: SVG.voice,
+        call: SVG.call,
+        sticker: SVG.sticker,
+        tomb: SVG.tomb,
+        sec: SVG.sec,
+        typing: SVG.typing,
+        grip: SVG.grip,
+      };
+
+      function paintGlyphs(root) {
+        root.querySelectorAll('[data-mark]').forEach((el) => {
+          el.innerHTML = SVG.mark(Number(el.getAttribute('data-mark')) || 16);
+        });
+        root.querySelectorAll('[data-g]').forEach((el) => {
+          const fn = GLYPHS[el.getAttribute('data-g')];
+          if (fn) el.innerHTML = fn();
+        });
+      }
+
+      // ---- Menus ----------------------------------------------------------
+      function closeAllMenus() {
+        document.querySelectorAll('[data-menupanel]').forEach((p) => (p.hidden = true));
+        document
+          .querySelectorAll('.aim-menubar__item--open')
+          .forEach((b) => b.classList.remove('aim-menubar__item--open'));
+      }
+
+      document.addEventListener('click', (e) => {
+        const trigger = e.target.closest('[data-menu]');
+        if (!trigger) {
+          closeAllMenus();
+          return;
+        }
+        e.stopPropagation();
+        const key = trigger.getAttribute('data-menu');
+        const panel = document.querySelector(`[data-menupanel="${key}"]`);
+        const wasOpen = panel && !panel.hidden;
+        closeAllMenus();
+        if (panel && !wasOpen) {
+          panel.hidden = false;
+          trigger.classList.add('aim-menubar__item--open');
+        }
+      });
+
+      // Hover-to-switch once a menu is already open, as on Windows.
+      document.addEventListener('mouseover', (e) => {
+        const trigger = e.target.closest('[data-menu]');
+        if (!trigger) return;
+        const anyOpen = [...document.querySelectorAll('[data-menupanel]')].some((p) => !p.hidden);
+        if (!anyOpen) return;
+        const panel = document.querySelector(`[data-menupanel="${trigger.dataset.menu}"]`);
+        if (!panel || !panel.hidden) return;
+        closeAllMenus();
+        panel.hidden = false;
+        trigger.classList.add('aim-menubar__item--open');
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeAllMenus();
+      });
+
+      // ---- Group collapse + row selection ---------------------------------
+      document.addEventListener('click', (e) => {
+        const header = e.target.closest('.aim-group__header');
+        if (header) {
+          const children = header.parentElement.querySelector('.aim-group__children');
+          const expander = header.querySelector('.aim-group__expander');
+          if (children) {
+            children.hidden = !children.hidden;
+            if (expander) expander.innerHTML = children.hidden ? SVG.triClosed() : SVG.triOpen();
+          }
+          return;
+        }
+        const row = e.target.closest('.aim-buddy');
+        if (row) {
+          row
+            .closest('.aim-buddylist__tree, .aim-panel')
+            ?.querySelectorAll('.aim-buddy--selected')
+            .forEach((r) => r.classList.remove('aim-buddy--selected'));
+          row.classList.add('aim-buddy--selected');
+        }
+      });
+
+      // Double-click a buddy is the "open an IM window" gesture.
+      document.addEventListener('dblclick', (e) => {
+        const row = e.target.closest('.aim-buddy');
+        if (!row) return;
+        const name = row.querySelector('.aim-buddy__name')?.textContent ?? '';
+        alert(
+          `Double-click opens a real OS window for: ${name}\n(In the app this is window:openIm.)`
+        );
+      });
+
+      // ---- Toolbar toggles ------------------------------------------------
+      document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.aim-toolbar__btn');
+        if (btn && !btn.disabled) btn.classList.toggle('aim-toolbar__btn--on');
+      });
+
+      // ---- Fake-but-plausible QR block ------------------------------------
+      // Deterministic noise plus real finder patterns, so the sign-on window can
+      // be reviewed at the right visual weight. Not a scannable code.
+      function fakeQr(seed) {
+        const N = 29;
+        let s = seed;
+        const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+        const finder = (x, y) =>
+          `<rect x="${x}" y="${y}" width="7" height="7"/>
+           <rect x="${x + 1}" y="${y + 1}" width="5" height="5" fill="#fff"/>
+           <rect x="${x + 2}" y="${y + 2}" width="3" height="3"/>`;
+        const inFinder = (x, y) => (x < 8 && y < 8) || (x > N - 9 && y < 8) || (x < 8 && y > N - 9);
+        let cells = '';
+        for (let y = 0; y < N; y++)
+          for (let x = 0; x < N; x++)
+            if (!inFinder(x, y) && rnd() > 0.52)
+              cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
+        return `<svg viewBox="0 0 ${N} ${N}" width="152" height="152" shape-rendering="crispEdges" style="display:block">
+          <rect width="${N}" height="${N}" fill="#fff"/>
+          ${cells}${finder(0, 0)}${finder(N - 7, 0)}${finder(0, N - 7)}
+        </svg>`;
+      }
+
+      // ---- Sign-on windows, one per connection state -----------------------
+      const STATES = {
+        linked: {
+          short: 'Connected',
+          detail: 'This device is linked and connected. Messages send and receive normally.',
+        },
+        linking: {
+          short: 'Linking…',
+          detail: 'Waiting for the code to be scanned from your phone. Keep this window open.',
+        },
+        unlinked: {
+          short: 'Not linked',
+          detail:
+            'This device is not linked to an account. Scan the code from your phone to link it. No messages can be sent or received until you do.',
+        },
+        'daemon-down': {
+          short: 'No service',
+          detail:
+            'The background messaging service is not running, so nothing can be sent or received. Messages sent to you are held by the server and will arrive once it restarts.',
+        },
+      };
+
+      function signOn(state) {
+        const label = STATES[state];
+        const showQr = state === 'linking' || state === 'unlinked';
+        return `
+        <div class="sc-host-signon">
+          <div class="aim-window aim-signon">
+            <div class="aim-titlebar" data-chrome>
+              <span class="aim-titlebar__icon" data-mark="16"></span>
+              <span class="aim-titlebar__text">Sign On &mdash; Instant Messenger</span>
+              <span class="aim-titlebar__buttons">
+                <button class="aim-titlebar__btn" data-g="min"></button>
+                <button class="aim-titlebar__btn aim-titlebar__btn--close" data-g="close"></button>
+              </span>
+            </div>
+            <div class="aim-window__body">
+              <div class="aim-signon__banner">
+                <span data-mark="38"></span>
+                <span class="aim-signon__wordmark">
+                  <span class="aim-signon__wordmark-main">Instant Messenger</span>
+                  <span class="aim-signon__wordmark-sub">Linked Device</span>
+                </span>
+              </div>
+              <div class="aim-signon__body">
+                ${
+                  showQr
+                    ? `<div class="aim-signon__instructions">
+                         To link this computer to your account:
+                         <ol><li>Open the messenger app on your phone.</li>
+                         <li>Go to Settings &rarr; Linked Devices.</li>
+                         <li>Scan the code below.</li></ol>
+                       </div>
+                       <div class="aim-signon__qr-frame"><div class="aim-signon__qr">${
+                         state === 'linking' ? fakeQr(20030517) : fakeQr(777)
+                       }</div></div>
+                       <label class="aim-field aim-field--stacked">
+                         <span class="aim-field__label">This device will appear as:</span>
+                         <input class="aim-input" value="Desktop" />
+                       </label>
+                       <label class="aim-check">
+                         <span class="aim-check__box" data-g="check"></span>
+                         <span class="aim-check__label">Keep me signed on</span>
+                       </label>`
+                    : `<div class="aim-signon__instructions">${label.detail}</div>`
+                }
+                ${
+                  state === 'linking'
+                    ? `<div class="aim-progress"><div class="aim-progress__blocks"></div></div>`
+                    : ''
+                }
+                <div class="aim-signon__state aim-signon__state--${state}" title="${label.detail}">
+                  <span class="aim-signon__state-led"></span>
+                  <span class="aim-signon__state-label">${label.short}</span>
+                  <span class="aim-signon__state-detail">(${state})</span>
+                </div>
+                <div class="aim-signon__actions">
+                  <button class="aim-btn aim-btn--small">Help</button>
+                  ${
+                    state === 'daemon-down'
+                      ? `<button class="aim-btn aim-btn--small aim-btn--default">Restart Service</button>`
+                      : `<button class="aim-btn aim-btn--small aim-btn--default">${
+                          state === 'linked' ? 'Relink&hellip;' : 'New Code'
+                        }</button>`
+                  }
+                  <button class="aim-btn aim-btn--small">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      document.getElementById('sc-signons').innerHTML = [
+        'linked',
+        'linking',
+        'unlinked',
+        'daemon-down',
+      ]
+        .map(signOn)
+        .join('');
+
+      paintGlyphs(document);
+
+      // ---- Toolbar switches -----------------------------------------------
+      const body = document.body;
+      document.getElementById('sc-tahoma').addEventListener('change', (e) => {
+        body.classList.toggle('no-tahoma', e.target.checked);
+      });
+      document.getElementById('sc-aliased').addEventListener('change', (e) => {
+        document.getElementById('sc-root').classList.toggle('aim-aliased', e.target.checked);
+      });
+      document.getElementById('sc-ruler').addEventListener('change', (e) => {
+        body.classList.toggle('show-ruler', e.target.checked);
+      });
+      document.getElementById('sc-inactive').addEventListener('change', (e) => {
+        document
+          .querySelectorAll('[data-chrome]')
+          .forEach((t) => t.classList.toggle('aim-titlebar--inactive', e.target.checked));
+      });
+    </script>
+  </body>
+</html>

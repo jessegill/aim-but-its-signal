@@ -14,6 +14,10 @@ release/
 *.app
 
 # Local account state — NEVER commit. A linked device has full account access.
+# signal-cli's real on-disk layout is data/<e164>, data/<e164>.d/, data/accounts.json,
+# so the whole directory is ignored outright — --config can point anywhere, and a
+# narrower pattern is trivially defeated.
+/data/
 .signal-cli/
 signal-cli-data/
 *.db
@@ -22,6 +26,35 @@ signal-cli-data/
 *.db-shm
 *.sqlite
 *.sqlite3
+*.sqlitedb
+*.db3
+
+# Message content downloaded by the daemon — real media from real contacts.
+/attachments/
+/avatars/
+/stickers/
+
+# Key material. Signing certs in particular land in the repo root by habit.
+*.pem
+*.key
+*.p12
+*.pfx
+*.p8
+*.jks
+*.keystore
+*.asc
+*.gpg
+*.mobileprovision
+id_rsa
+id_ed25519
+.netrc
+
+# Test coverage
+coverage/
+
+# Envelope captures — contain real message bodies, phone numbers and UUIDs.
+*.jsonl
+/captures/
 
 # Secrets / local config
 .env

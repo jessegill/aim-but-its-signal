@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      TODO(main): owned by integration — add a Content-Security-Policy here (or via
+      session.webRequest) once the dev-server needs are settled. Renderers must never reach
+      the network; today that is enforced by the build-time guard in electron.vite.config.ts.
+    -->
+    <title>Buddy List</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

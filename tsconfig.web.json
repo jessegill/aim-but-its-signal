@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/renderer/**/*.d.ts",
+    "src/shared/**/*.ts",
+    "src/preload/api.d.ts"
+  ],
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // No "node" types in renderers — they are pure views (SPEC.md §3). If you find yourself
+    // wanting `process` or `fs` here, the work belongs in the main process.
+    "types": [],
+    "jsx": "react-jsx",
+    "tsBuildInfoFile": "node_modules/.tmp/tsconfig.web.tsbuildinfo"
+  }
+}

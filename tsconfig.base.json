@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    // Electron 43 on Apple Silicon / macOS 15+. Modern V8 is guaranteed; no downlevelling.
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    // Explicit `.ts` specifiers in relative imports. Safe because nothing here is emitted by
+    // tsc — Vite/Rollup resolve the extension — and it keeps import paths unambiguous.
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Strict. Do not loosen these without agreement — main owns all state, and the IPC
+    // surface in src/shared/types.ts is only as safe as the checking around it.
+    "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowUnreachableCode": false,
+    // noUnusedLocals / noUnusedParameters are deliberately OFF here: ESLint's
+    // @typescript-eslint/no-unused-vars covers the same ground as an error, and it honours
+    // `^_` ignore patterns for args, caught errors and destructured elements — which tsc does
+    // not. One owner for one rule; unused code still fails `npm run lint`.
+
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"]
+    },
+
+    "composite": true,
+    "noEmit": true
+  }
+}

@@ -1,0 +1,223 @@
+/*
+ * Base stylesheet — reset, design tokens, and window-chrome primitives.
+ *
+ * This is the foundation the AIM component library in src/renderer/ui/ builds on. It
+ * deliberately contains NO components: no buttons, no title bars, no buddy rows. Only things
+ * that must be true everywhere.
+ *
+ * Imported once per renderer entry point (buddylist / im / signon).
+ */
+
+/* ==========================================================================
+   1. Reset
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+
+  /*
+   * SPEC.md §9: "Square everywhere. border-radius: 0 globally." This is called out as the
+   * single highest-impact rule in the whole visual spec — rounded geometry reads as modern
+   * immediately, and macOS user-agent styles round inputs, buttons and selects by default.
+   *
+   * !important is intentional: there is no case in this product where a rounded corner is
+   * correct, and this rule has to survive any component stylesheet that forgets.
+   */
+  border-radius: 0 !important;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overflow: hidden; /* Windows are sized to their content; the app never page-scrolls. */
+}
+
+img,
+svg,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  /* macOS rounds and re-skins native controls; the AIM look needs a blank slate. */
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+button {
+  cursor: default; /* 2003 desktop software, not the web — no pointer cursor on buttons. */
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+/* ==========================================================================
+   2. Tokens (SPEC.md §9)
+   ========================================================================== */
+
+:root {
+  /* Surfaces */
+  --chrome-bg: #ece9d8; /* XP gray */
+  --field-bg: #ffffff;
+  --panel-bg: #ffffff;
+
+  /* Title bar — active gradient, plus the muted inactive variant */
+  --titlebar-from: #0054e3;
+  --titlebar-to: #3d8ceb;
+  --titlebar-from-inactive: #7a9fd4;
+  --titlebar-to-inactive: #a8c0e0;
+  --titlebar-text: #ffffff;
+
+  /* Accent */
+  --accent: #ffcc00; /* AIM yellow */
+
+  /* Text */
+  --text: #000000;
+  --text-muted: #4a4a4a;
+  --text-disabled: #808080;
+  --link: #0000ee;
+
+  /* 3D edges — the "2px outset / 2px inset" idiom in SPEC.md §9 */
+  --edge-light: #ffffff;
+  --edge-face: #d4d0c8;
+  --edge-shadow: #808080;
+  --edge-dark: #404040;
+
+  /* Selection */
+  --select-bg: #0a246a;
+  --select-text: #ffffff;
+
+  /*
+   * Type. SPEC.md §9 asks for Tahoma at ~11px.
+   *
+   * IMPORTANT: macOS does NOT ship Tahoma — it arrives only with Microsoft Office. The chain
+   * below degrades to fonts that are present on a stock macOS install: Verdana (same
+   * humanist-grotesque feel, noticeably wider) then Geneva. See the webfont hook in §5.
+   */
+  --font-ui: Tahoma, Verdana, Geneva, sans-serif;
+  --font-mono: 'Andale Mono', Menlo, monospace;
+  --font-size: 11px;
+  --line-height: 1.25;
+
+  /* Density — SPEC.md §9: "Tight. Small rows, minimal padding." */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --row-height: 16px;
+  --titlebar-height: 22px;
+}
+
+html {
+  font-family: var(--font-ui);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  color: var(--text);
+  background: var(--chrome-bg);
+
+  /* Period-correct rendering: no macOS font smoothing, no synthetic subpixel softening. */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+::selection {
+  background: var(--select-bg);
+  color: var(--select-text);
+}
+
+/* ==========================================================================
+   3. Frameless window chrome
+   ========================================================================== */
+
+/*
+ * Every BrowserWindow is created with `frame: false` so the UI can draw the XP title bar
+ * itself (SPEC.md §9). That removes the OS drag handle, so the title bar has to declare one.
+ *
+ *   .titlebar-drag  → put on the title bar container
+ *   .no-drag        → put on every interactive child (buttons, menus, inputs) inside it,
+ *                     otherwise clicks are swallowed by the drag region
+ */
+.titlebar-drag {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.no-drag,
+.titlebar-drag button,
+.titlebar-drag input,
+.titlebar-drag select,
+.titlebar-drag a {
+  -webkit-app-region: no-drag;
+}
+
+/* Chrome is not selectable text; message content is (see .selectable). */
+.chrome {
+  user-select: none;
+  cursor: default;
+}
+
+.selectable {
+  user-select: text;
+  cursor: auto;
+}
+
+/* ==========================================================================
+   4. Accessibility / motion
+   ========================================================================== */
+
+:focus-visible {
+  outline: 1px dotted var(--text);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   5. Webfont hook — INTENTIONALLY EMPTY
+   ==========================================================================
+ *
+ * Tahoma cannot be redistributed, and macOS does not provide it. If a licensed or
+ * metric-compatible substitute is bundled later (e.g. an original look-alike placed in
+ * resources/fonts/), declare it here and prepend it to --font-ui above:
+ *
+ *   @font-face {
+ *     font-family: 'RetroUI';
+ *     src: url('/fonts/retro-ui.woff2') format('woff2');
+ *     font-weight: 400;
+ *     font-display: block;
+ *   }
+ *   :root { --font-ui: 'RetroUI', Tahoma, Verdana, Geneva, sans-serif; }
+ *
+ * Nothing is bundled today — the app runs on the Verdana fallback.
+ */

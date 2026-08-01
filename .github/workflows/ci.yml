@@ -1,0 +1,179 @@
+name: CI
+
+# macOS-only, Apple Silicon only, minimum macOS 15 (SPEC.md §2, §4).
+# There is deliberately no ubuntu/windows matrix and no x64 or universal entry: the product
+# does not ship those slices, so building them would only prove things that cannot regress.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '26'
+  # electron-builder / @electron/rebuild download slices for the host arch only.
+  npm_config_arch: arm64
+  npm_config_target_arch: arm64
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Runs first and independently: a leaked linked-device credential is not something to
+  # discover after a 6-minute build. SPEC.md §10 — this repo is public and the app has full
+  # account access.
+  # ---------------------------------------------------------------------------
+  account-safety:
+    name: Account-state guard
+    runs-on: macos-15 # arm64 (Apple Silicon)
+    timeout-minutes: 5
+    steps:
+      - name: Checkout (full history for diff scanning)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan every tracked file
+        run: bash scripts/hooks/check-secrets.sh --tracked
+
+      - name: Scan the pull request diff
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --quiet origin "${{ github.base_ref }}"
+          bash scripts/hooks/check-secrets.sh \
+            --range "origin/${{ github.base_ref }}...HEAD"
+
+      - name: Scan the pushed range
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: |
+          bash scripts/hooks/check-secrets.sh \
+            --range "${{ github.event.before }}...${{ github.sha }}"
+
+      - name: Assert .gitignore still covers account state
+        run: |
+          missing=0
+          for pattern in 'node_modules' '\.signal-cli' 'signal-cli-data' '\*\.db' '\*\.sqlite' '\.env'; do
+            if ! grep -Eq -- "$pattern" .gitignore; then
+              echo "::error file=.gitignore::.gitignore no longer ignores '$pattern'"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+  # ---------------------------------------------------------------------------
+  # Install → typecheck → lint → test → native ABI → build.
+  # One job rather than five: on macOS runners a fresh `npm ci` plus an Electron download
+  # costs more than every check combined, so fanning out would be slower, not faster.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Verify (macOS 15 · arm64 · Node 26)
+    runs-on: macos-15 # arm64 (Apple Silicon)
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm the runner is Apple Silicon
+        run: |
+          arch="$(uname -m)"
+          echo "runner arch: $arch"
+          echo "macOS: $(sw_vers -productVersion)"
+          if [ "$arch" != "arm64" ]; then
+            echo "::error::CI must run on an arm64 runner; got $arch"
+            exit 1
+          fi
+
+      # setup-node's built-in cache errors out if no lockfile exists yet. Detect it so the
+      # workflow is correct both before and after the lockfile lands.
+      - name: Detect lockfile
+        id: lockfile
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "cache=npm" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "cache=" >> "$GITHUB_OUTPUT"
+            echo "::warning::package-lock.json is missing; installs are unpinned and uncached."
+          fi
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ steps.lockfile.outputs.cache }}
+          cache-dependency-path: package-lock.json
+
+      # Electron's binary is ~100 MB and is re-downloaded on every install without this.
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-macos15-arm64-${{ hashFiles('package-lock.json', 'package.json') }}
+          restore-keys: |
+            electron-macos15-arm64-
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ steps.lockfile.outputs.present }}" = "true" ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      # Tests run against the Node-ABI build of better-sqlite3, which is what Vitest can
+      # load. SPEC.md §8 requires the security-critical rows (expiry, view-once, delete-for-
+      # everyone) to be covered by explicit tests, and those exercise the store layer.
+      - name: Test
+        run: npm test
+
+      # ---- native module / Electron ABI -------------------------------------
+      # Everything above ran under Node's ABI. better-sqlite3 must also load inside Electron,
+      # whose NODE_MODULE_VERSION differs. Rebuilding here and then loading the result from
+      # the Electron runtime is what stops CI from passing on a binary the app cannot use.
+      # This step must come after `npm test`: it replaces the Node-ABI build.
+      - name: Rebuild native modules against the Electron ABI
+        run: npm run rebuild # electron-rebuild --arch arm64 --force
+
+      - name: Verify native SQLite under the Electron runtime
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: npx --no-install electron .github/scripts/verify-electron-abi.cjs
+
+      # ---- build ------------------------------------------------------------
+      - name: Build
+        run: npm run build
+
+      - name: Check packaging targets are arm64-only
+        run: bash .github/scripts/check-arch-targets.sh
+
+      - name: Confirm build output exists
+        run: |
+          out_dir=""
+          for candidate in out dist build; do
+            if [ -d "$candidate" ]; then out_dir="$candidate"; break; fi
+          done
+          if [ -z "$out_dir" ]; then
+            echo "::error::the build produced no output directory (looked for out/, dist/, build/)"
+            exit 1
+          fi
+          echo "build output in $out_dir:"
+          find "$out_dir" -maxdepth 2 -type f | head -40

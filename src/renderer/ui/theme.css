@@ -1,0 +1,1544 @@
+/* =============================================================================
+ * theme.css — AIM 5.1 / Windows XP (2003) visual system
+ *
+ * Tokens are fixed by SPEC.md §9. Do not soften them.
+ *
+ * THE ONE RULE:  border-radius is 0 everywhere, enforced globally below with
+ * !important. Rounded geometry reads as "modern" instantly and destroys the
+ * whole effect. There are no exceptions -- not for buttons, not for avatars,
+ * not for focus rings.
+ *
+ * NO PRESENCE (SPEC.md §7): there are deliberately no styles in this file for
+ * online/offline/idle/away indicators, away messages, or warning levels.
+ * Signal does not transmit any of that. If you find yourself adding
+ * `.aim-buddy__status-dot`, stop.
+ *
+ * NO EXTRACTED ARTWORK (SPEC.md §9, §10): every glyph in this library is an
+ * original inline SVG or a CSS shape. No AIM/AOL bitmaps are referenced.
+ * ========================================================================== */
+
+:root {
+  /* --- Chrome ------------------------------------------------------------ */
+  --xp-chrome: #ece9d8; /* XP "gray" -- the signature dialog face   */
+  --xp-chrome-dark: #d4d0c8; /* older-gray, used for wells / inactive    */
+  --xp-face-light: #ffffff;
+  --xp-face-shadow: #808080;
+  --xp-face-dark-shadow: #404040;
+
+  /* --- Title bar (Luna blue) --------------------------------------------- */
+  --xp-title: #0054e3;
+  --xp-title-lite: #3a93ff;
+  --xp-title-hi: #0058ee;
+  --xp-title-inactive-a: #7aa2df;
+  --xp-title-inactive-b: #9db9eb;
+  --xp-title-text: #ffffff;
+
+  /* --- Accent ------------------------------------------------------------ */
+  --aim-yellow: #ffcc00;
+  --aim-yellow-dark: #c89f00;
+  --aim-yellow-lite: #ffe680;
+
+  /* --- Selection / highlight --------------------------------------------- */
+  --xp-select: #316ac5;
+  --xp-select-text: #ffffff;
+  --xp-hover: #d8e4f8;
+
+  /* --- Message ink -------------------------------------------------------
+   * AIM's defaults: your own text red, the other person's blue. Kept.       */
+  --ink-me: #d40000;
+  --ink-them: #0000c0;
+  --ink-body: #000000;
+  --ink-dim: #6d6d6d;
+  --ink-system: #4a4a4a;
+
+  /* --- Security (SPEC.md §8: security outranks retro authenticity) -------- */
+  --sec-bar: #a80000;
+  --sec-face: #fff4c2;
+  --sec-edge: #8a6d00;
+
+  /* --- Type ---------------------------------------------------------------
+   * macOS-only app. macOS does NOT ship Tahoma -- it arrives with Microsoft
+   * Office, so most machines will fall back. Verdana and Geneva are present on
+   * a stock macOS, so the chain is Tahoma -> Verdana -> Geneva -> sans-serif.
+   *
+   * Verdana is metrically WIDER than Tahoma (~7-10% at the same px size). Every
+   * tight row in this file is sized against the Verdana fallback, not against
+   * Tahoma, and every horizontal text run has `overflow: hidden` +
+   * `text-overflow: ellipsis` so a wider face degrades to truncation rather
+   * than to clipping or reflow. "MS Sans Serif" is deliberately absent from the
+   * chain: it does not exist on macOS and only lengthens lookup.               */
+  --aim-font-ui: Tahoma, Verdana, Geneva, sans-serif;
+  --aim-font-msg: Tahoma, Verdana, Geneva, sans-serif;
+  --aim-font-mono: Menlo, 'Lucida Console', 'Courier New', monospace;
+  --size-ui: 11px;
+  --size-msg: 12px;
+  --size-small: 10px;
+}
+
+/* -----------------------------------------------------------------------------
+ * GLOBAL: square corners. Highest-impact rule in the spec. Never relax this.
+ * -------------------------------------------------------------------------- */
+.aim-root,
+.aim-root *,
+.aim-root *::before,
+.aim-root *::after {
+  border-radius: 0 !important;
+  box-sizing: border-box;
+}
+
+.aim-root {
+  font-family: var(--aim-font-ui);
+  font-size: var(--size-ui);
+  color: #000;
+  background: var(--xp-chrome);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+  cursor: default;
+  user-select: none;
+}
+
+/* Opt-in: fully aliased text, which is a big part of why 2003 looked like 2003.
+ * Left off by default because on a Retina panel `none` renders 11px type thin
+ * and ragged. Add `aim-aliased` to the root element to turn it on. */
+.aim-root.aim-aliased,
+.aim-root.aim-aliased * {
+  -webkit-font-smoothing: none;
+}
+
+.aim-root ::selection {
+  background: var(--xp-select);
+  color: var(--xp-select-text);
+}
+
+/* Text that the user is meant to be able to select (message bodies, codes). */
+.aim-selectable {
+  user-select: text;
+  cursor: text;
+}
+
+/* =============================================================================
+ * WINDOW SHELL
+ * ========================================================================== */
+.aim-window {
+  display: flex;
+  flex-direction: column;
+  background: var(--xp-chrome);
+  border: 2px outset var(--xp-chrome);
+  overflow: hidden;
+}
+
+.aim-window__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* =============================================================================
+ * TITLE BAR
+ *
+ * This is REAL window chrome, not decoration. The app is macOS-only and every
+ * BrowserWindow is created with `frame: false`, so this strip is the only chrome
+ * that exists: it is the drag handle and it carries the only minimize/maximize/
+ * close controls.
+ *
+ *   - `.aim-titlebar` is `-webkit-app-region: drag`.
+ *   - `.aim-titlebar__buttons` MUST stay `-webkit-app-region: no-drag`, or the
+ *     buttons become undraggable dead zones that never receive clicks.
+ *   - Controls sit on the RIGHT, XP-style. Deliberately not macOS traffic
+ *     lights -- looking like Windows is the entire point.
+ * ========================================================================== */
+.aim-titlebar {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 2px 0 3px;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: var(--xp-title-text);
+  background: linear-gradient(
+    180deg,
+    var(--xp-title-hi) 0%,
+    var(--xp-title-lite) 9%,
+    #288eff 18%,
+    #0054e3 42%,
+    #0054e3 88%,
+    #2e8bf5 95%,
+    #0050dd 100%
+  );
+  -webkit-app-region: drag;
+}
+
+.aim-titlebar--inactive {
+  background: linear-gradient(
+    180deg,
+    var(--xp-title-inactive-b) 0%,
+    var(--xp-title-inactive-a) 40%,
+    var(--xp-title-inactive-a) 90%,
+    #6f92d4 100%
+  );
+  color: #e6ecf8;
+}
+
+.aim-titlebar__icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.aim-titlebar__text {
+  flex: 1 1 auto;
+  font-weight: bold;
+  font-size: var(--size-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+  letter-spacing: 0.1px;
+}
+
+.aim-titlebar__buttons {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.aim-titlebar__btn {
+  width: 21px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  color: #fff;
+  border: 1px solid #1b47a8;
+  outline: 1px solid rgba(255, 255, 255, 0.55);
+  outline-offset: -2px;
+  background: linear-gradient(180deg, #4f95f5 0%, #2c72dd 45%, #1a5ec8 55%, #4184e6 100%);
+  cursor: default;
+  /* Belt and braces: restated on the button itself so an inherited drag region
+     from an ancestor can never swallow these clicks. */
+  -webkit-app-region: no-drag;
+}
+
+.aim-titlebar__btn:hover {
+  background: linear-gradient(180deg, #7ab4ff 0%, #4a8ce8 45%, #2f72d8 55%, #6aa6f2 100%);
+}
+
+.aim-titlebar__btn:active {
+  background: linear-gradient(180deg, #1a4fae 0%, #2c6bc8 60%, #4a8ce8 100%);
+}
+
+.aim-titlebar__btn--close {
+  border-color: #8c2a1a;
+  background: linear-gradient(180deg, #e88a72 0%, #d0472c 45%, #b8351d 55%, #e07a5e 100%);
+}
+
+.aim-titlebar__btn--close:hover {
+  background: linear-gradient(180deg, #f3a893 0%, #e05a3c 45%, #cc4023 55%, #ec9179 100%);
+}
+
+.aim-titlebar__btn--close:active {
+  background: linear-gradient(180deg, #a8301a 0%, #c8482c 60%, #e07a5e 100%);
+}
+
+.aim-titlebar__btn svg {
+  display: block;
+  pointer-events: none;
+}
+
+/* =============================================================================
+ * MENU BAR
+ * ========================================================================== */
+.aim-menubar {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  height: 19px;
+  padding: 0 1px;
+  background: var(--xp-chrome);
+  border-bottom: 1px solid #d0ccb8;
+  user-select: none;
+}
+
+.aim-menubar__item {
+  display: flex;
+  align-items: center;
+  padding: 0 7px;
+  font: inherit;
+  font-size: var(--size-ui);
+  color: #000;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.aim-menubar__item:hover {
+  border-color: #b3b0a4;
+  background: #dfdcca;
+}
+
+.aim-menubar__item--open,
+.aim-menubar__item--open:hover {
+  background: var(--xp-select);
+  color: var(--xp-select-text);
+  border-color: var(--xp-select);
+}
+
+.aim-menubar__item[disabled] {
+  color: var(--xp-face-shadow);
+}
+
+.aim-menubar__mnemonic {
+  text-decoration: underline;
+}
+
+/* --- Dropdown ------------------------------------------------------------- */
+.aim-menu {
+  position: absolute;
+  top: 100%;
+  z-index: 400;
+  min-width: 148px;
+  padding: 2px;
+  background: var(--xp-chrome);
+  border: 2px outset var(--xp-chrome);
+  box-shadow: 2px 2px 3px rgba(0, 0, 0, 0.35);
+}
+
+.aim-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px 3px 20px;
+  position: relative;
+  font: inherit;
+  font-size: var(--size-ui);
+  text-align: left;
+  color: #000;
+  background: transparent;
+  border: 0;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.aim-menu__item:hover:not([disabled]) {
+  background: var(--xp-select);
+  color: var(--xp-select-text);
+}
+
+.aim-menu__item[disabled] {
+  color: var(--xp-face-shadow);
+  text-shadow: 1px 1px 0 var(--xp-face-light);
+}
+
+.aim-menu__label {
+  flex: 1 1 auto;
+}
+
+.aim-menu__accel {
+  flex: 0 0 auto;
+  padding-left: 18px;
+  opacity: 0.8;
+}
+
+.aim-menu__check {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  line-height: 10px;
+  font-size: 10px;
+}
+
+.aim-menu__sep {
+  height: 0;
+  margin: 3px 2px;
+  border-top: 1px solid var(--xp-face-shadow);
+  border-bottom: 1px solid var(--xp-face-light);
+}
+
+/* =============================================================================
+ * PANEL
+ * ========================================================================== */
+.aim-panel {
+  background: var(--xp-chrome);
+  border: 2px outset var(--xp-chrome);
+  padding: 4px;
+}
+
+.aim-panel--sunken {
+  border-style: inset;
+  background: #fff;
+}
+
+.aim-panel--flat {
+  border: 1px solid var(--xp-face-shadow);
+  padding: 3px;
+}
+
+.aim-panel--plain {
+  border: 0;
+  padding: 0;
+}
+
+/* Classic groupbox: etched frame with the caption notched into the top edge. */
+.aim-panel--group {
+  position: relative;
+  border: 1px solid var(--xp-face-shadow);
+  box-shadow:
+    1px 1px 0 var(--xp-face-light),
+    inset 1px 1px 0 var(--xp-face-light);
+  padding: 10px 8px 8px;
+  margin-top: 6px;
+}
+
+.aim-panel__title {
+  position: absolute;
+  top: -7px;
+  left: 7px;
+  padding: 0 3px;
+  background: var(--xp-chrome);
+  font-size: var(--size-ui);
+  font-weight: bold;
+}
+
+.aim-panel--group > .aim-panel__title {
+  font-weight: normal;
+}
+
+/* =============================================================================
+ * BUTTON
+ * ========================================================================== */
+.aim-btn {
+  min-width: 68px;
+  min-height: 21px;
+  padding: 2px 10px;
+  font-family: var(--aim-font-ui);
+  font-size: var(--size-ui);
+  color: #000;
+  background: var(--xp-chrome);
+  border: 2px outset var(--xp-chrome);
+  cursor: default;
+  white-space: nowrap;
+}
+
+.aim-btn:focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+
+.aim-btn:active:not([disabled]),
+.aim-btn--pressed {
+  border-style: inset;
+  /* Content shifts down-right one pixel when depressed. Classic. */
+  padding: 3px 9px 1px 11px;
+}
+
+.aim-btn[disabled] {
+  color: var(--xp-face-shadow);
+  text-shadow: 1px 1px 0 var(--xp-face-light);
+}
+
+/* Dialog default button: extra dark outline outside the bevel. */
+.aim-btn--default {
+  outline: 1px solid #000;
+  outline-offset: 0;
+  font-weight: bold;
+}
+
+.aim-btn--small {
+  min-width: 0;
+  min-height: 18px;
+  padding: 1px 6px;
+}
+
+.aim-btn--small:active:not([disabled]) {
+  padding: 2px 5px 0 7px;
+}
+
+.aim-btn--wide {
+  min-width: 92px;
+}
+
+/* =============================================================================
+ * TEXT INPUT
+ * ========================================================================== */
+.aim-input {
+  font-family: var(--aim-font-ui);
+  font-size: var(--size-ui);
+  color: #000;
+  background: #fff;
+  border: 2px inset var(--xp-chrome);
+  padding: 2px 3px;
+  min-height: 20px;
+  cursor: text;
+  user-select: text;
+}
+
+.aim-input:focus {
+  outline: none;
+}
+
+.aim-input[disabled],
+.aim-input[readonly] {
+  background: var(--xp-chrome);
+  color: var(--xp-face-shadow);
+}
+
+.aim-input--textarea {
+  resize: none;
+  min-height: 44px;
+  line-height: 1.35;
+}
+
+.aim-input--mono {
+  font-family: var(--aim-font-mono);
+  letter-spacing: 0.5px;
+}
+
+.aim-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aim-field__label {
+  flex: 0 0 auto;
+  font-size: var(--size-ui);
+}
+
+.aim-field--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+/* =============================================================================
+ * CHECKBOX
+ * ========================================================================== */
+.aim-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--size-ui);
+  cursor: default;
+}
+
+.aim-check__box {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 2px inset var(--xp-chrome);
+}
+
+.aim-check--disabled {
+  color: var(--xp-face-shadow);
+  text-shadow: 1px 1px 0 var(--xp-face-light);
+}
+
+.aim-check--disabled .aim-check__box {
+  background: var(--xp-chrome);
+}
+
+.aim-check__box svg {
+  display: block;
+}
+
+.aim-check__native {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.aim-check:focus-within .aim-check__label {
+  outline: 1px dotted #000;
+  outline-offset: 1px;
+}
+
+/* Radio uses the same box, drawn as a diamond-free square with a dot inside --
+   still square, per the corner rule. */
+.aim-check__box--radio > i {
+  width: 5px;
+  height: 5px;
+  background: #000;
+  display: block;
+}
+
+/* =============================================================================
+ * SELECT
+ * ========================================================================== */
+.aim-select {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  background: #fff;
+  border: 2px inset var(--xp-chrome);
+  min-height: 20px;
+}
+
+.aim-select__native {
+  flex: 1 1 auto;
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: var(--aim-font-ui);
+  font-size: var(--size-ui);
+  color: #000;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 1px 20px 1px 3px;
+  cursor: default;
+}
+
+.aim-select__arrow {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  bottom: 1px;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--xp-chrome);
+  border: 2px outset var(--xp-chrome);
+  pointer-events: none;
+}
+
+.aim-select--disabled {
+  background: var(--xp-chrome);
+}
+
+.aim-select--disabled .aim-select__native {
+  color: var(--xp-face-shadow);
+}
+
+/* =============================================================================
+ * STATUS BAR
+ * ========================================================================== */
+.aim-statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  /* 22px, not the 20px the bevel maths alone would suggest: after 2px padding
+     and the cell's 1px inset border there are 14px left for an 11px line, and
+     Verdana's line box at 11px is ~13.4px. 20px clipped descenders on the
+     Tahoma-less fallback; 22px has room to spare. */
+  height: 22px;
+  padding: 2px;
+  background: var(--xp-chrome);
+  border-top: 1px solid var(--xp-face-light);
+  font-size: var(--size-ui);
+}
+
+.aim-statusbar__cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px;
+  border: 1px inset var(--xp-chrome);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.aim-statusbar__cell--grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.aim-statusbar__grip {
+  flex: 0 0 auto;
+  width: 14px;
+  align-self: stretch;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+/* =============================================================================
+ * TOOLBAR (shared: formatting toolbar, buddy list button strip)
+ * ========================================================================== */
+.aim-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 3px;
+  background: var(--xp-chrome);
+  border-top: 1px solid var(--xp-face-light);
+  border-bottom: 1px solid #b8b4a4;
+}
+
+.aim-toolbar__btn {
+  width: 22px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: 'Times New Roman', Georgia, serif;
+  font-size: 13px;
+  line-height: 1;
+  color: #000;
+  background: transparent;
+  border: 2px outset transparent;
+  cursor: default;
+}
+
+.aim-toolbar__btn:hover:not([disabled]) {
+  border-color: var(--xp-chrome);
+  background: #f2f0e4;
+}
+
+.aim-toolbar__btn:active:not([disabled]),
+.aim-toolbar__btn--on {
+  border: 2px inset var(--xp-chrome);
+  background: #dedbc9;
+}
+
+.aim-toolbar__btn[disabled] {
+  color: var(--xp-face-shadow);
+}
+
+.aim-toolbar__btn--wide {
+  width: auto;
+  padding: 0 6px;
+  font-family: var(--aim-font-ui);
+  font-size: var(--size-ui);
+}
+
+.aim-toolbar__sep {
+  width: 0;
+  height: 16px;
+  margin: 0 3px;
+  border-left: 1px solid var(--xp-face-shadow);
+  border-right: 1px solid var(--xp-face-light);
+}
+
+.aim-toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+/* Colour swatch button -- the little "A" over a colour chip. */
+.aim-fmt__swatch {
+  display: block;
+  width: 14px;
+  height: 4px;
+  border: 1px solid #5a5a5a;
+}
+
+.aim-fmt__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  line-height: 1;
+}
+
+.aim-fmt__font {
+  width: 108px;
+}
+
+.aim-fmt__size {
+  width: 46px;
+}
+
+/* =============================================================================
+ * BUDDY LIST WINDOW
+ * ========================================================================== */
+.aim-buddylist {
+  width: 208px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* The yellow banner strip across the top. Original mark, no AOL artwork. */
+.aim-buddylist__banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: linear-gradient(
+    180deg,
+    var(--aim-yellow-lite) 0%,
+    var(--aim-yellow) 55%,
+    var(--aim-yellow-dark) 100%
+  );
+  border-bottom: 1px solid #8a6d00;
+}
+
+.aim-buddylist__banner-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.aim-buddylist__screenname {
+  font-weight: bold;
+  font-size: 12px;
+  color: #241d00;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aim-buddylist__sublabel {
+  font-size: var(--size-small);
+  color: #5a4800;
+}
+
+.aim-buddylist__tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #fff;
+  border: 2px inset var(--xp-chrome);
+  margin: 3px;
+  padding: 1px 0;
+}
+
+.aim-buddylist__footer {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 3px;
+  padding: 0 3px 3px;
+}
+
+.aim-buddylist__footer .aim-btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* --- Group --------------------------------------------------------------- */
+.aim-group__header {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: 1px 3px 1px 2px;
+  font-size: var(--size-ui);
+  font-weight: bold;
+  text-align: left;
+  color: #000;
+  background: transparent;
+  border: 0;
+  cursor: default;
+}
+
+.aim-group__header:hover {
+  background: var(--xp-hover);
+}
+
+.aim-group--selected > .aim-group__header {
+  background: var(--xp-select);
+  color: var(--xp-select-text);
+}
+
+.aim-group__expander {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.aim-group__name {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aim-group__count {
+  flex: 0 0 auto;
+  font-weight: normal;
+  color: var(--ink-dim);
+}
+
+.aim-group--selected .aim-group__count {
+  color: #d6e2f7;
+}
+
+.aim-group__children {
+  display: block;
+}
+
+.aim-group__empty {
+  padding: 1px 4px 2px 22px;
+  font-style: italic;
+  color: var(--ink-dim);
+}
+
+/* --- Buddy row ------------------------------------------------------------
+ * Tight: 16px tall. No presence column exists, so the name starts almost at
+ * the indent guide.                                                          */
+.aim-buddy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 16px;
+  padding: 0 4px 0 18px;
+  font-size: var(--size-ui);
+  text-align: left;
+  color: #000;
+  background: transparent;
+  border: 0;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.aim-buddy:hover {
+  background: var(--xp-hover);
+}
+
+.aim-buddy--selected,
+.aim-buddy--selected:hover {
+  background: var(--xp-select);
+  color: var(--xp-select-text);
+}
+
+.aim-buddy__icon {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.aim-buddy__name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aim-buddy__name--nick {
+  font-style: italic;
+}
+
+.aim-buddy__realname {
+  flex: 0 1 auto;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aim-buddy--selected .aim-buddy__realname {
+  color: #d6e2f7;
+}
+
+.aim-buddy__unread {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 3px;
+  font-size: var(--size-small);
+  font-weight: bold;
+  color: #241d00;
+  background: var(--aim-yellow);
+  border: 1px solid var(--aim-yellow-dark);
+  line-height: 12px;
+}
+
+.aim-buddy--unregistered .aim-buddy__name,
+.aim-buddy--blocked .aim-buddy__name {
+  color: var(--xp-face-shadow);
+  text-decoration: line-through;
+}
+
+.aim-buddy__tag {
+  flex: 0 0 auto;
+  font-size: var(--size-small);
+  color: var(--ink-dim);
+}
+
+/* =============================================================================
+ * IM WINDOW
+ * ========================================================================== */
+.aim-im {
+  width: 440px;
+  height: 360px;
+  min-height: 0;
+}
+
+/* History pane on top, formatting toolbar in the middle, input pane below,
+   Send bottom-right (SPEC.md §9). The toolbar is full-bleed between the two
+   padded panes so its rules run edge to edge, as they did in 5.1. */
+.aim-im__logwrap {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  padding: 3px;
+}
+
+.aim-im__log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: #fff;
+  border: 2px inset var(--xp-chrome);
+  padding: 2px 4px;
+}
+
+.aim-im__compose {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px;
+}
+
+.aim-im__input {
+  height: 56px;
+  width: 100%;
+  font-family: var(--aim-font-msg);
+  font-size: var(--size-msg);
+}
+
+.aim-im__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.aim-im__actions-spacer {
+  flex: 1 1 auto;
+}
+
+.aim-im__warning {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  background: var(--xp-chrome-dark);
+  border: 1px solid var(--xp-face-shadow);
+  color: #7a2000;
+  font-size: var(--size-small);
+}
+
+/* =============================================================================
+ * MESSAGE LOG
+ * NO BUBBLES. Plain flowed text, bold coloured sender name, inline timestamp.
+ * ========================================================================== */
+.aim-log {
+  font-family: var(--aim-font-msg);
+  font-size: var(--size-msg);
+  color: var(--ink-body);
+  line-height: 1.32;
+  user-select: text;
+  cursor: auto;
+}
+
+.aim-log__empty {
+  padding: 6px 2px;
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
+.aim-msg {
+  margin: 0 0 1px;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.aim-msg__time {
+  color: var(--ink-dim);
+  font-size: var(--size-small);
+  margin-right: 3px;
+}
+
+.aim-msg__sender {
+  font-weight: bold;
+}
+
+.aim-msg__sender--me {
+  color: var(--ink-me);
+}
+
+.aim-msg__sender--them {
+  color: var(--ink-them);
+}
+
+.aim-msg__body {
+  white-space: pre-wrap;
+}
+
+.aim-msg__edit {
+  color: var(--ink-dim);
+  font-size: var(--size-small);
+  margin-left: 4px;
+}
+
+.aim-msg__receipt {
+  color: var(--ink-dim);
+  font-size: var(--size-small);
+  margin-left: 5px;
+}
+
+.aim-msg__receipt--failed {
+  color: #b00000;
+  font-weight: bold;
+}
+
+/* Quoted-reply stub: a left rule, exactly like a mail client of the era. */
+.aim-msg__quote {
+  margin: 2px 0 1px 14px;
+  padding: 1px 5px;
+  border-left: 3px solid #9a9a9a;
+  background: #f2f2f2;
+  color: #3a3a3a;
+  font-size: var(--size-ui);
+}
+
+.aim-msg__quote-author {
+  font-weight: bold;
+}
+
+.aim-msg__quote-text {
+  white-space: pre-wrap;
+}
+
+.aim-msg__quote-missing {
+  font-style: italic;
+  color: var(--ink-dim);
+}
+
+/* Reactions render inline as bracketed text: [♥ from Bob]. Never dropped. */
+.aim-msg__reactions {
+  display: inline;
+  margin-left: 5px;
+  color: #7a3d00;
+  font-size: var(--size-ui);
+}
+
+.aim-msg__reaction {
+  margin-right: 3px;
+  white-space: nowrap;
+}
+
+/* Attachment / sticker / voice affordances: labelled inset chips, no rounding. */
+.aim-msg__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 2px 14px;
+  padding: 2px 6px 2px 4px;
+  background: var(--xp-chrome);
+  border: 2px outset var(--xp-chrome);
+  font-size: var(--size-ui);
+  max-width: 100%;
+}
+
+.aim-msg__chip-meta {
+  color: var(--ink-dim);
+}
+
+.aim-msg__chip-link {
+  color: #0000c0;
+  text-decoration: underline;
+  cursor: default;
+}
+
+.aim-msg__thumb {
+  display: block;
+  max-width: 180px;
+  max-height: 140px;
+  margin: 2px 0 2px 14px;
+  border: 2px inset var(--xp-chrome);
+  background: #fff;
+}
+
+.aim-msg__sticker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  margin: 2px 0 2px 14px;
+  background: repeating-conic-gradient(#e8e8e8 0% 25%, #ffffff 0% 50%) 0 0 / 12px 12px;
+  border: 2px inset var(--xp-chrome);
+  color: var(--ink-dim);
+  font-size: var(--size-small);
+  text-align: center;
+}
+
+.aim-msg__viewonce {
+  border-color: var(--sec-edge);
+  background: var(--sec-face);
+}
+
+/* System-ish lines: tombstones, calls, notices. Italic and set apart. */
+.aim-msg__system {
+  margin: 2px 0;
+  padding: 1px 4px 1px 14px;
+  color: var(--ink-system);
+  font-size: var(--size-ui);
+  font-style: italic;
+}
+
+.aim-msg__tombstone {
+  color: var(--ink-dim);
+}
+
+.aim-msg__call {
+  color: #004a7a;
+  font-style: normal;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.aim-msg__divider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 5px 0 3px;
+  color: var(--ink-dim);
+  font-size: var(--size-small);
+  font-style: italic;
+}
+
+.aim-msg__divider::before,
+.aim-msg__divider::after {
+  content: '';
+  flex: 1 1 auto;
+  border-top: 1px solid #c8c8c8;
+}
+
+/* Typing indicator. NOT presence -- a real per-message protocol event. */
+.aim-typing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-dim);
+  font-style: italic;
+  font-size: var(--size-ui);
+}
+
+/* =============================================================================
+ * SECURITY NOTICE
+ * SPEC.md §8: when retro authenticity conflicts with a security signal,
+ * security wins. Era-styled, but loud, and there is no dismiss-and-hide path
+ * that removes the underlying fact from the log.
+ * ========================================================================== */
+.aim-security {
+  display: flex;
+  align-items: stretch;
+  margin: 5px 0;
+  background: var(--sec-face);
+  border: 2px outset var(--sec-face);
+  outline: 1px solid var(--sec-edge);
+  outline-offset: 0;
+  font-style: normal;
+  color: #000;
+}
+
+.aim-security__bar {
+  flex: 0 0 auto;
+  width: 8px;
+  background: repeating-linear-gradient(135deg, var(--sec-bar) 0 5px, #ffcf00 5px 10px);
+}
+
+.aim-security__inner {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 6px;
+  padding: 5px 6px;
+  min-width: 0;
+}
+
+.aim-security__icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+}
+
+.aim-security__content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.aim-security__title {
+  font-weight: bold;
+  font-size: var(--size-ui);
+  color: #7a0000;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+.aim-security__body {
+  font-size: var(--size-ui);
+  line-height: 1.35;
+}
+
+.aim-security__fingerprint {
+  font-family: var(--aim-font-mono);
+  font-size: var(--size-ui);
+  letter-spacing: 0.5px;
+  margin-top: 3px;
+  padding: 2px 4px;
+  background: #fff;
+  border: 2px inset var(--sec-face);
+  user-select: text;
+  cursor: text;
+  word-break: break-all;
+}
+
+.aim-security__actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.aim-security--blocking {
+  outline-width: 2px;
+}
+
+.aim-security--blocking .aim-security__title {
+  color: #fff;
+  background: var(--sec-bar);
+  padding: 1px 4px;
+  margin: -1px -1px 3px;
+  display: inline-block;
+}
+
+/* =============================================================================
+ * SIGN-ON / LINKING WINDOW
+ * ========================================================================== */
+.aim-signon {
+  width: 300px;
+}
+
+.aim-signon__banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 62px;
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    var(--aim-yellow-lite) 40%,
+    var(--aim-yellow) 100%
+  );
+  border-bottom: 1px solid #8a6d00;
+}
+
+.aim-signon__wordmark {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+
+.aim-signon__wordmark-main {
+  font-size: 19px;
+  font-weight: bold;
+  letter-spacing: -0.4px;
+  color: #241d00;
+}
+
+.aim-signon__wordmark-sub {
+  font-size: var(--size-small);
+  color: #5a4800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+
+.aim-signon__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px;
+}
+
+.aim-signon__instructions {
+  font-size: var(--size-ui);
+  line-height: 1.4;
+}
+
+.aim-signon__instructions ol {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.aim-signon__qr-frame {
+  align-self: center;
+  padding: 6px;
+  background: #fff;
+  border: 2px inset var(--xp-chrome);
+}
+
+.aim-signon__qr {
+  display: block;
+  width: 152px;
+  height: 152px;
+  image-rendering: pixelated;
+}
+
+.aim-signon__qr--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: var(--size-ui);
+  background: repeating-conic-gradient(#efefef 0% 25%, #ffffff 0% 50%) 0 0 / 16px 16px;
+}
+
+.aim-signon__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 2px inset var(--xp-chrome);
+  background: var(--xp-chrome);
+  font-size: var(--size-ui);
+}
+
+/* Link/daemon state of THIS application -- not a person's availability. */
+.aim-signon__state-led {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border: 1px solid #4a4a4a;
+  background: #9a9a9a;
+}
+
+.aim-signon__state--linked .aim-signon__state-led {
+  background: #00a000;
+}
+.aim-signon__state--linking .aim-signon__state-led {
+  background: var(--aim-yellow);
+}
+.aim-signon__state--unlinked .aim-signon__state-led {
+  background: #b0b0b0;
+}
+.aim-signon__state--daemon-down .aim-signon__state-led {
+  background: #c00000;
+}
+
+.aim-signon__state-label {
+  font-weight: bold;
+}
+
+.aim-signon__state-detail {
+  color: var(--ink-dim);
+}
+
+.aim-signon__actions {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+/* Indeterminate XP-style progress: marching square blocks. */
+.aim-progress {
+  height: 14px;
+  padding: 1px;
+  background: #fff;
+  border: 2px inset var(--xp-chrome);
+  overflow: hidden;
+}
+
+.aim-progress__blocks {
+  height: 100%;
+  width: 200%;
+  background: repeating-linear-gradient(90deg, #3aa93a 0 8px, transparent 8px 12px);
+  animation: aim-march 1.1s linear infinite;
+}
+
+@keyframes aim-march {
+  from {
+    transform: translateX(-12px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aim-progress__blocks {
+    animation: none;
+  }
+}
+
+/* =============================================================================
+ * UTILITIES
+ * ========================================================================== */
+.aim-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.aim-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.aim-spacer {
+  flex: 1 1 auto;
+}
+
+.aim-hr {
+  height: 0;
+  border-top: 1px solid var(--xp-face-shadow);
+  border-bottom: 1px solid var(--xp-face-light);
+  margin: 4px 0;
+}
+
+.aim-dim {
+  color: var(--ink-dim);
+}
+
+.aim-bold {
+  font-weight: bold;
+}
+
+/* Classic scrollbars where the engine still honours them. */
+.aim-root ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+.aim-root ::-webkit-scrollbar-track {
+  background: repeating-conic-gradient(#f1efe2 0% 25%, #ffffff 0% 50%) 0 0 / 2px 2px;
+}
+
+.aim-root ::-webkit-scrollbar-thumb {
+  background: var(--xp-chrome);
+  border: 2px outset var(--xp-chrome);
+}
+
+.aim-root ::-webkit-scrollbar-button:single-button {
+  display: block;
+  height: 16px;
+  background: var(--xp-chrome);
+  border: 2px outset var(--xp-chrome);
+}
+
+.aim-root ::-webkit-scrollbar-corner {
+  background: var(--xp-chrome);
+}

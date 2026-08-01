@@ -1,0 +1,30 @@
+node_modules/
+out/
+dist/
+build/
+release/
+coverage/
+*.tsbuildinfo
+
+# Binary and generated assets — original AIM look-alike artwork, not source.
+resources/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.icns
+*.wav
+*.mp3
+*.ogg
+
+# Lockfile is npm's to format.
+package-lock.json
+
+# Markdown is hand-wrapped at ~96 columns across SPEC.md, README.md and docs/, with tables
+# whose pipe alignment Prettier would rewrite wholesale. Prettier adds nothing to prose and
+# would only produce diff noise in files owned by other people, so it stays out of markdown.
+# Prettier remains authoritative for ts/tsx/js/json/css/yml.
+*.md
+
+LICENSE

@@ -1,0 +1,82 @@
+# Packaging — macOS, Apple Silicon only, minimum macOS 15 (Sequoia).
+#
+# Run with: npm run package   (typechecks, builds, then produces release/*.dmg)
+#
+# Kept in YAML rather than package.json so the decisions below can carry their reasoning.
+
+appId: dev.retroim.app
+productName: Retro IM
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - out/**/*
+  - resources/**/*
+  - package.json
+
+# The SQLite driver loads a .node binary at runtime, which cannot be read from inside
+# app.asar. Anything in `dependencies` that ships a native addon belongs here.
+#
+# The driver is better-sqlite3-multiple-ciphers (SQLCipher). Plain better-sqlite3 accepts
+# `PRAGMA cipher` / `PRAGMA hexkey` silently and then writes cleartext, so it cannot satisfy
+# SPEC.md §8's encryption-at-rest requirement. Keep this path in sync with
+# package.json > dependencies.
+asarUnpack:
+  - '**/node_modules/better-sqlite3-multiple-ciphers/**'
+
+# Rebuilding is handled by `postinstall` (@electron/rebuild), which downloads the publisher's
+# Electron-ABI prebuild rather than compiling. Leaving electron-builder's own rebuild off keeps
+# a single owner for that step.
+#
+# ABI PIN — READ BEFORE BUMPING ELECTRON: better-sqlite3-multiple-ciphers is NOT a Node-API
+# addon, so its binary is tied to one NODE_MODULE_VERSION. v12.11.1 publishes Electron
+# prebuilds only up to ABI 146, which is Electron 42. Electron 43 is ABI 148 and has no
+# prebuild — bumping past 42 forces a from-source node-gyp build, which currently fails
+# because this repository's path contains an apostrophe (see .npmrc).
+npmRebuild: false
+
+mac:
+  category: public.app-category.social-networking
+
+  # arm64 only. No universal binary and no x64 slice — roughly halves artifact size and
+  # build time, and the project targets Apple Silicon exclusively.
+  target:
+    - target: dmg
+      arch:
+        - arm64
+
+  # Hard floor. The app refuses to launch on older systems rather than failing obscurely.
+  minimumSystemVersion: '15.0'
+  extendInfo:
+    LSMinimumSystemVersion: '15.0'
+
+  icon: resources/icons/RetroIM.icns
+
+  # ---------------------------------------------------------------------------
+  # CODE SIGNING HOOK — NOT CONFIGURED YET
+  # ---------------------------------------------------------------------------
+  # As written, output is UNSIGNED and UNNOTARIZED. It runs fine on the dev machine but
+  # Gatekeeper will block it on any other Mac ("app is damaged / cannot be opened").
+  #
+  # To enable, replace the two lines below with:
+  #
+  #   identity: Developer ID Application: <Name> (<TEAMID>)
+  #   hardenedRuntime: true
+  #   gatekeeperAssess: false
+  #   entitlements: resources/entitlements.mac.plist
+  #   entitlementsInherit: resources/entitlements.mac.plist
+  #   notarize:
+  #     teamId: <TEAMID>
+  #
+  # and export APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID in the environment.
+  # The hardened runtime needs `com.apple.security.cs.allow-unsigned-executable-memory`
+  # for V8, and the app spawns signal-cli as a child process (SPEC.md §2) so it also needs
+  # `com.apple.security.cs.disable-library-validation`.
+  identity: null
+  notarize: false
+
+dmg:
+  writeUpdateInfo: false

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook. Enable it with:
+#
+#     ./scripts/hooks/install-hooks.sh
+#
+# It runs the account-state guard against the staged index. It is deliberately fast — no
+# typecheck, no lint, no test — so that it never becomes something people bypass. CI runs
+# the slow checks.
+
+set -uo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if ! "$HOOK_DIR/check-secrets.sh" --staged; then
+  exit 1
+fi
+
+exit 0

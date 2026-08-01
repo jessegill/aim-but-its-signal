@@ -19,7 +19,7 @@
 import * as React from 'react';
 import type { JSX } from 'react';
 
-import type { Buddy, BuddyId, ConnectionState, GroupId, Roster } from '@shared/types';
+import type { Buddy, BuddyId, ConnectionState, GroupChat, GroupId, Roster } from '@shared/types';
 
 import { BuddyListWindow, buddyListMenus, type MenuItemSpec, type MenuSpec } from '../ui';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
@@ -49,6 +49,9 @@ function selfScreenName(): string {
 
 export function App(): JSX.Element {
   const [roster, setRoster] = React.useState<Roster>(EMPTY_ROSTER);
+  /** Signal group conversations. Listed apart from the roster; they are places, not people. */
+  const [chats, setChats] = React.useState<GroupChat[]>([]);
+  const [selectedChatId, setSelectedChatId] = React.useState<string | null>(null);
   const [connection, setConnection] = React.useState<ConnectionState>('linking');
   const [selectedBuddyId, setSelectedBuddyId] = React.useState<BuddyId | null>(null);
   const [selectedGroupId, setSelectedGroupId] = React.useState<GroupId | null>(null);
@@ -78,6 +81,12 @@ export function App(): JSX.Element {
       setError(null);
     } catch (err) {
       setError(describeFailure('roster:get', err));
+    }
+    try {
+      setChats(await invoke('chats:get'));
+    } catch {
+      // Rooms are additive. Failing to list them must not blank the buddy list, which is the
+      // window's actual job — the section simply does not appear.
     }
   }, []);
 
@@ -153,6 +162,23 @@ export function App(): JSX.Element {
         return next;
       });
       mutate('window:openIm', () => invoke('window:openIm', buddy.id));
+    },
+    [mutate]
+  );
+
+  /**
+   * Opens a chat room. Same channel as a buddy — main routes by conversation id, and a group id
+   * is one. There is deliberately no separate "join room" step: the user is already a member.
+   */
+  const openChat = React.useCallback(
+    (chat: GroupChat): void => {
+      setUnreadByBuddy((prev) => {
+        if (!(chat.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[chat.id];
+        return next;
+      });
+      mutate('window:openIm', () => invoke('window:openIm', chat.id));
     },
     [mutate]
   );
@@ -416,22 +442,32 @@ export function App(): JSX.Element {
         style={{ width: '100%', flex: '1 1 auto', minHeight: 0 }}
         screenName={selfScreenName()}
         roster={roster}
+        chats={chats}
         connection={connection}
         unreadByBuddy={unreadByBuddy}
         selectedBuddyId={selectedBuddyId}
         selectedGroupId={selectedGroupId}
+        selectedChatId={selectedChatId}
         windowActive={windowActive}
         hideEmptyGroups={!showEmptyGroups}
         menus={menus}
         onSelectBuddy={(b) => {
           setSelectedBuddyId(b.id);
           setSelectedGroupId(null);
+          setSelectedChatId(null);
         }}
         onOpenIm={openIm}
         onBuddyContextMenu={onBuddyContextMenu}
+        onSelectChat={(c) => {
+          setSelectedChatId(c.id);
+          setSelectedBuddyId(null);
+          setSelectedGroupId(null);
+        }}
+        onOpenChat={openChat}
         onSelectGroup={(id) => {
           setSelectedGroupId(id);
           setSelectedBuddyId(null);
+          setSelectedChatId(null);
         }}
         onToggleGroup={toggleGroup}
         onGroupContextMenu={onGroupContextMenu}

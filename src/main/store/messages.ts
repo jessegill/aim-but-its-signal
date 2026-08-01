@@ -71,6 +71,7 @@ import type {
 
 import type { SqliteBindValue, StoreDatabase } from './db.ts';
 import type { AttachmentCache } from './attachments.ts';
+import { resolveNames } from './roster.ts';
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -502,10 +503,17 @@ export function createMessageStore(
     const ids = rows.map((row) => row.id);
     const attachments = loadAttachments(ids);
     const reactions = loadReactions(ids);
+    // Resolved here rather than stored on the row: a contact who is renamed, or given a local
+    // nickname, is renamed in their whole history at once. One query for the batch.
+    const senderNames = resolveNames(
+      db,
+      rows.map((row) => row.sender_id)
+    );
     return rows.map((row) => ({
       id: row.id,
       conversationId: row.conversation_id,
       senderId: row.sender_id,
+      senderName: senderNames.get(row.sender_id) ?? row.sender_id.slice(0, 8),
       outgoing: row.outgoing === 1,
       body: row.body,
       sentAt: row.sent_at,

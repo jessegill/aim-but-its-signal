@@ -29,6 +29,8 @@ import { createMessageStore } from './messages.ts';
 import type { MessageStore, MessageStoreOptions } from './messages.ts';
 import { createRosterStore } from './roster.ts';
 import type { RosterStore } from './roster.ts';
+import { createSignalGroupStore } from './signal-groups.ts';
+import type { SignalGroupStore } from './signal-groups.ts';
 import { createWindowStore } from './windows.ts';
 import type { WindowStore } from './windows.ts';
 import { createIdentityStore } from './identity.ts';
@@ -40,6 +42,7 @@ export * from './migrations.ts';
 export * from './attachments.ts';
 export * from './messages.ts';
 export * from './roster.ts';
+export * from './signal-groups.ts';
 export * from './windows.ts';
 export * from './identity.ts';
 
@@ -63,6 +66,8 @@ export interface Store {
   readonly db: StoreDatabase;
   readonly messages: MessageStore;
   readonly roster: RosterStore;
+  /** Signal group conversations. Unrelated to the roster's local buddy groups. */
+  readonly signalGroups: SignalGroupStore;
   readonly windows: WindowStore;
   readonly identity: IdentityStore;
   readonly attachments: AttachmentCache;
@@ -100,6 +105,7 @@ export function openStore(options: StoreOptions): Store {
 
   const messages = createMessageStore(db, attachments, options.messages);
   const roster = createRosterStore(db);
+  const signalGroups = createSignalGroupStore(db);
   const windows = createWindowStore(db);
   const identity = createIdentityStore(db, messages);
 
@@ -113,6 +119,7 @@ export function openStore(options: StoreOptions): Store {
     db,
     messages,
     roster,
+    signalGroups,
     windows,
     identity,
     attachments,

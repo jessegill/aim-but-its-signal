@@ -76,6 +76,8 @@ export function registerIpc(service: AppService): void {
 
   ipcMain.handle('roster:get', () => service.getRoster());
 
+  ipcMain.handle('chats:get', () => service.getChats());
+
   ipcMain.handle('roster:move', (_event, buddyId: unknown, groupId: unknown) => {
     service.roster.moveBuddy(requireString(buddyId, 'buddyId'), requireNumber(groupId, 'groupId'));
   });

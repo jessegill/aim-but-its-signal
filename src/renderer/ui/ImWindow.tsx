@@ -19,7 +19,7 @@
  */
 
 import * as React from 'react';
-import type { Attachment, Buddy, Message } from '../../shared/types';
+import type { Attachment, Buddy, GroupChat, Message } from '../../shared/types';
 import { TitleBar } from './TitleBar';
 import { MenuBar, imMenus, type MenuSpec } from './MenuBar';
 import { Button, StatusBar, TextArea, Window, WindowBody, cx } from './controls';
@@ -30,6 +30,12 @@ import { BuddyGlyph } from './icons';
 
 export interface ImWindowProps {
   contact: Buddy;
+  /**
+   * Set for a group conversation, and the only thing that distinguishes one: the window
+   * becomes an AIM chat room (SPEC.md §8) — a participant list beside the history, and every
+   * line attributed to its own sender instead of to a single other party.
+   */
+  group?: GroupChat | null;
   /** Display name for the local account, used for own message lines. */
   selfName: string;
   messages: Message[];
@@ -40,6 +46,8 @@ export interface ImWindowProps {
 
   /** The other party is typing right now. A protocol event, not presence. */
   theirTyping?: boolean;
+  /** Who is typing. Only meaningful in a group; 1:1 falls back to the contact's name. */
+  typingName?: string | null;
   /** Fired as the user starts/stops typing so the host can emit im:setTyping. */
   onTypingChange?: (isTyping: boolean) => void;
 
@@ -76,11 +84,13 @@ export interface ImWindowProps {
 
 export function ImWindow({
   contact,
+  group = null,
   selfName,
   messages,
   draft,
   onDraftChange,
   theirTyping,
+  typingName,
   onTypingChange,
   onSend,
   onAttach,
@@ -111,13 +121,31 @@ export function ImWindow({
   const nick = contact.nickname?.trim();
   const contactName = nick !== undefined && nick.length > 0 ? nick : contact.displayName;
 
-  // Unregistered contacts render normally but cannot be sent to (types.ts).
+  // Unregistered contacts render normally but cannot be sent to (types.ts). For a group the
+  // same flag carries "you are not in this group any more", which has the same consequence and
+  // needs its own wording — telling the user a chat room is "no longer registered" is nonsense.
   const blockedForSend = contact.unregistered || contact.blocked || !!sendDisabled;
   const blockReason = contact.unregistered
-    ? `${contactName} is no longer registered. Messages cannot be delivered.`
+    ? group !== null
+      ? `You are no longer a member of ${contactName}. The history stays; new messages cannot be sent.`
+      : `${contactName} is no longer registered. Messages cannot be delivered.`
     : contact.blocked
-      ? `${contactName} is blocked. Unblock to send.`
+      ? group !== null
+        ? `${contactName} is blocked. Unblock the group to send.`
+        : `${contactName} is blocked. Unblock to send.`
       : sendDisabledReason;
+
+  /**
+   * In a chat room every line is attributed to whoever sent it. `senderName` is resolved in the
+   * main process against the roster, so a member with a local nickname reads the same here as
+   * in the buddy list. Own lines keep `selfName` — "You" by any other spelling is confusing
+   * when your own display name is also in the member list.
+   */
+  const resolveName = React.useMemo(
+    () =>
+      group === null ? undefined : (m: Message): string => (m.outgoing ? selfName : m.senderName),
+    [group, selfName]
+  );
 
   /* Typing signal: on while the field is non-empty and being edited, off after
      a short idle or on send. The host decides what to do with it. */
@@ -170,6 +198,10 @@ export function ImWindow({
 
   const expiryOn = contact.messageExpirationTime > 0;
 
+  // A blank name is as bad as no name — fall back rather than render "  is typing…".
+  const typedBy = typingName?.trim();
+  const typingLabel = typedBy !== undefined && typedBy.length > 0 ? typedBy : contactName;
+
   return (
     <Window className={cx('aim-im', className)} style={style}>
       <TitleBar
@@ -187,6 +219,7 @@ export function ImWindow({
             messages={messages}
             selfName={selfName}
             contactName={contactName}
+            resolveName={resolveName}
             canPlayVoice={canPlayVoice}
             safetyNumber={safetyNumber}
             onOpenAttachment={onOpenAttachment}
@@ -196,6 +229,7 @@ export function ImWindow({
                there is no prop to remove it (SPEC.md §8). */
             banner={securityNotice}
           />
+          {group !== null ? <RoomList group={group} /> : null}
         </div>
 
         <FormattingToolbar
@@ -213,8 +247,16 @@ export function ImWindow({
           <TextArea
             className="aim-im__input"
             value={value}
-            placeholder={blockedForSend ? '' : `Message ${contactName}…`}
-            aria-label={`Message to ${contactName}`}
+            placeholder={
+              blockedForSend
+                ? ''
+                : group !== null
+                  ? 'Send to chat room…'
+                  : `Message ${contactName}…`
+            }
+            aria-label={
+              group !== null ? `Message to ${contactName} chat room` : `Message to ${contactName}`
+            }
             disabled={blockedForSend}
             onChange={handleChange}
             onKeyDown={onKeyDown}
@@ -254,7 +296,7 @@ export function ImWindow({
           {
             grow: true,
             // Typing only. Never "online", "idle" or "away" — no such data exists.
-            content: theirTyping ? <TypingIndicator name={contactName} /> : '',
+            content: theirTyping ? <TypingIndicator name={typingLabel} /> : '',
             title: 'Typing indicators are per-message protocol events, not availability.',
           },
           {
@@ -265,14 +307,59 @@ export function ImWindow({
                 <span
                   style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >
-                  {contact.number ?? 'no number'}
+                  {group !== null
+                    ? `${String(group.members.length)} in room`
+                    : (contact.number ?? 'no number')}
                 </span>
               </>
             ),
-            title: contact.number ?? 'Known by account id only',
+            title:
+              group !== null
+                ? // Not a presence count. Signal has no presence (SPEC.md §7) — this is
+                  // membership, and everyone in it is listed whether or not they are around.
+                  `${String(group.members.length)} members. Membership, not availability — Signal has no presence.`
+                : (contact.number ?? 'Known by account id only'),
           },
         ]}
       />
     </Window>
+  );
+}
+
+/**
+ * The chat-room participant list (SPEC.md §8).
+ *
+ * Deliberately NOT the buddy list's row component: those rows carry availability affordances,
+ * and this list has none to carry. Signal has no presence (SPEC.md §7), so everybody in a group
+ * is listed identically whether or not they are anywhere near their phone. The heading says
+ * "members" for the same reason — a count here is membership, not who is around.
+ */
+function RoomList({ group }: { group: GroupChat }): React.ReactElement {
+  return (
+    <div className="aim-room" role="group" aria-label="Chat room members">
+      <div className="aim-room__title">Members ({group.members.length})</div>
+      <ul className="aim-room__list">
+        {group.members.map((m) => (
+          <li
+            key={m.id}
+            className={cx('aim-room__member', m.isSelf && 'aim-room__member--self')}
+            title={m.isAdmin ? `${m.name} — group admin` : m.name}
+          >
+            <BuddyGlyph size={11} />
+            <span className="aim-room__name">{m.name}</span>
+            {m.isAdmin ? (
+              <span className="aim-room__admin" aria-label="group admin">
+                ★
+              </span>
+            ) : null}
+          </li>
+        ))}
+        {group.members.length === 0 ? (
+          <li className="aim-room__empty">
+            Member list not synced yet — messages still show who sent them.
+          </li>
+        ) : null}
+      </ul>
+    </div>
   );
 }

@@ -24,7 +24,7 @@
 import * as React from 'react';
 import type { JSX } from 'react';
 
-import type { Buddy, ConnectionState, Message, ReceiptState } from '@shared/types';
+import type { Buddy, ConnectionState, GroupChat, Message, ReceiptState } from '@shared/types';
 
 import {
   Button,
@@ -86,9 +86,12 @@ function mergeMessage(list: Message[], incoming: Message): Message[] {
 
 export function App({ conversationId }: AppProps): JSX.Element {
   const [contact, setContact] = React.useState<Buddy | null>(null);
+  /** Non-null iff this conversation is a Signal group; makes the window a chat room. */
+  const [group, setGroup] = React.useState<GroupChat | null>(null);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [connection, setConnection] = React.useState<ConnectionState>('linking');
   const [theirTyping, setTheirTyping] = React.useState(false);
+  const [typingName, setTypingName] = React.useState<string | null>(null);
   const [windowActive, setWindowActive] = React.useState(() => document.hasFocus());
   const [formatting, setFormatting] = React.useState<FormattingState | undefined>(undefined);
   const [loading, setLoading] = React.useState(true);
@@ -110,6 +113,7 @@ export function App({ conversationId }: AppProps): JSX.Element {
     try {
       const initial = await invoke('im:getInitial', conversationId);
       setContact(initial.contact);
+      setGroup(initial.group);
       setMessages([...initial.messages].sort((a, b) => a.sentAt - b.sentAt));
       setError(null);
       // Subscribe only after the history is in hand, so a message that lands mid-load cannot
@@ -125,6 +129,27 @@ export function App({ conversationId }: AppProps): JSX.Element {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Re-reads the conversation without re-subscribing or flashing the loading state.
+   *
+   * Sender names are resolved in main at read time, so a roster or group sync can change every
+   * name in the log — a group member who was a bare ACI a moment ago now has a name. Without
+   * this the window would keep showing the truncated ACI until it was closed and reopened.
+   */
+  const refresh = React.useCallback(async (): Promise<void> => {
+    if (conversationId === null) return;
+    try {
+      const initial = await invoke('im:getInitial', conversationId);
+      setContact(initial.contact);
+      setGroup(initial.group);
+      setMessages([...initial.messages].sort((a, b) => a.sentAt - b.sentAt));
+    } catch {
+      // The window already has a usable copy; a failed refresh is not worth an error strip.
+    }
+  }, [conversationId]);
+
+  useIpcEvent('roster:updated', () => void refresh());
 
   React.useEffect(() => {
     void (async () => {
@@ -168,9 +193,11 @@ export function App({ conversationId }: AppProps): JSX.Element {
     setMessages((prev) => prev.filter((m) => m.id !== messageId));
   });
 
-  useIpcEvent('im:typing', (cid, isTyping) => {
+  useIpcEvent('im:typing', (cid, isTyping, senderName) => {
     if (cid !== conversationId) return;
     setTheirTyping(isTyping);
+    // Kept on the "stopped" event too, so the indicator does not blank the name mid-fade.
+    if (senderName) setTypingName(senderName);
   });
 
   useIpcEvent('connection:state', (state) => setConnection(state));
@@ -248,6 +275,7 @@ export function App({ conversationId }: AppProps): JSX.Element {
               id: messageId,
               conversationId,
               senderId: '',
+              senderName: selfName(),
               outgoing: true,
               body,
               sentAt: Date.now(),
@@ -361,11 +389,13 @@ export function App({ conversationId }: AppProps): JSX.Element {
          window IS the component, so it fills whatever the OS gives it. */
       style={{ width: '100%', height: '100%', flex: '1 1 auto', minHeight: 0 }}
       contact={contact}
+      group={group}
       selfName={selfName()}
       messages={messages}
       menus={menus}
       windowActive={windowActive}
       theirTyping={theirTyping}
+      typingName={typingName}
       onTypingChange={setTyping}
       onSend={send}
       // Voice playback would need the file off disk, which a renderer cannot have

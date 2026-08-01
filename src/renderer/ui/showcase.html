@@ -697,6 +697,31 @@ Multi-line input. Inset border, white face, no rounding anywhere.</textarea>
                       <div class="aim-group__empty">No buddies in this group</div>
                     </div>
                   </div>
+
+                  <!-- Signal group conversations. A fixed section below the user's own groups:
+                       a room is a place, not a person, so it is never a roster entry and can
+                       never be dragged into a buddy group. -->
+                  <div class="aim-group" data-group>
+                    <div
+                      class="aim-group__header"
+                      title="Chat Rooms — 1 of 2 rooms have unread messages. Membership, not availability."
+                    >
+                      <span class="aim-group__expander" data-g="tri-open"></span>
+                      <span class="aim-group__name">Chat Rooms</span>
+                      <span class="aim-group__count">(1/2)</span>
+                    </div>
+                    <div class="aim-group__children">
+                      <div class="aim-buddy" title="Weekend Plans · 4 members">
+                        <span class="aim-buddy__icon" data-g="room"></span>
+                        <span class="aim-buddy__name">Weekend Plans</span>
+                        <span class="aim-buddy__unread" title="2 unread">(2)</span>
+                      </div>
+                      <div class="aim-buddy" title="Book Club · 11 members">
+                        <span class="aim-buddy__icon" data-g="room"></span>
+                        <span class="aim-buddy__name">Book Club</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="aim-buddylist__footer">
@@ -1170,6 +1195,123 @@ sounds good, sending now</textarea>
               </div>
             </div>
           </div>
+
+          <!-- Group conversation: the same window, in chat-room form. -->
+          <div class="sc-host-im sc-host-im--wide">
+            <div class="aim-window aim-im">
+              <div class="aim-titlebar" data-chrome>
+                <span class="aim-titlebar__icon" data-mark="16"></span>
+                <span class="aim-titlebar__text">Weekend Plans</span>
+                <span class="aim-titlebar__buttons">
+                  <button class="aim-titlebar__btn" data-g="min"></button>
+                  <button class="aim-titlebar__btn" data-g="max"></button>
+                  <button
+                    class="aim-titlebar__btn aim-titlebar__btn--close"
+                    data-g="close"
+                  ></button>
+                </span>
+              </div>
+
+              <div class="aim-menubar" data-menubar>
+                <button class="aim-menubar__item">
+                  <span class="aim-menubar__mnemonic">F</span>ile
+                </button>
+                <button class="aim-menubar__item">
+                  <span class="aim-menubar__mnemonic">E</span>dit
+                </button>
+                <button class="aim-menubar__item">
+                  <span class="aim-menubar__mnemonic">P</span>eople
+                </button>
+              </div>
+
+              <div class="aim-window__body">
+                <div class="aim-im__logwrap">
+                  <div class="aim-im__log aim-log">
+                    <!-- Every line names its own sender. In a room there is no "the other
+                         person" to attribute to (SPEC.md §8). -->
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:02:11 PM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-msg__body">saturday still on?</span>
+                      </div>
+                    </div>
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:02:40 PM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">Marcus:</span>
+                        <span class="aim-msg__body">i can drive, room for three</span>
+                      </div>
+                    </div>
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:03:02 PM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--them">3f1c9a2b:</span>
+                        <span class="aim-msg__body">who is this again</span>
+                      </div>
+                    </div>
+                    <div class="aim-msg">
+                      <div>
+                        <span class="aim-msg__time">(9:03:15 PM)</span>
+                        <span class="aim-msg__sender aim-msg__sender--me">CoolBuddy2003:</span>
+                        <span class="aim-msg__body">someone Dana added, be nice</span>
+                        <span class="aim-msg__receipt">sent</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Member list. No presence dots: Signal has none (SPEC.md §7). -->
+                  <div class="aim-room">
+                    <div class="aim-room__title">Members (4)</div>
+                    <ul class="aim-room__list">
+                      <li class="aim-room__member">
+                        <span data-g="room-11"></span><span class="aim-room__name">Dana</span
+                        ><span class="aim-room__admin">&#9733;</span>
+                      </li>
+                      <li class="aim-room__member">
+                        <span data-g="room-11"></span><span class="aim-room__name">Marcus</span>
+                      </li>
+                      <li class="aim-room__member aim-room__member--self">
+                        <span data-g="room-11"></span
+                        ><span class="aim-room__name">CoolBuddy2003</span>
+                      </li>
+                      <li class="aim-room__member">
+                        <span data-g="room-11"></span><span class="aim-room__name">3f1c9a2b</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div class="aim-im__compose">
+                  <textarea
+                    class="aim-input aim-input--textarea aim-im__input"
+                    placeholder="Send to chat room&hellip;"
+                  ></textarea>
+                  <div class="aim-im__actions">
+                    <button class="aim-btn aim-btn--small">Attach&hellip;</button>
+                    <span class="aim-im__actions-spacer"></span>
+                    <button class="aim-btn aim-btn--default aim-btn--wide">Send</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="aim-statusbar">
+                <div class="aim-statusbar__cell aim-statusbar__cell--grow">
+                  <span class="aim-typing"
+                    ><span data-g="typing"></span>Marcus is typing&hellip;</span
+                  >
+                </div>
+                <div
+                  class="aim-statusbar__cell"
+                  style="width: 96px; flex: 0 0 auto"
+                  title="4 members. Membership, not availability — Signal has no presence."
+                >
+                  <span data-g="buddy-11"></span><span>4 in room</span>
+                </div>
+                <span class="aim-statusbar__grip" data-g="grip"></span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1318,6 +1460,13 @@ sounds good, sending now</textarea>
           <rect x="4" y="2" width="4" height="4" fill="#5B6B8C"/>
           <path d="M2 11 L2 9 Q2 7 6 7 Q10 7 10 9 L10 11 Z" fill="#5B6B8C"/>
         </svg>`,
+        room: (s) => `<svg viewBox="0 0 12 12" width="${s}" height="${s}" style="display:block">
+          <rect width="12" height="12" fill="#fff" stroke="#7A7A6A"/>
+          <rect x="1.5" y="2" width="3" height="3" fill="#8C6B5B"/>
+          <path d="M0.5 10 L0.5 8.5 Q0.5 7 3 7 Q5.5 7 5.5 8.5 L5.5 10 Z" fill="#8C6B5B"/>
+          <rect x="7.5" y="2" width="3" height="3" fill="#5B6B8C"/>
+          <path d="M6.5 10 L6.5 8.5 Q6.5 7 9 7 Q11.5 7 11.5 8.5 L11.5 10 Z" fill="#5B6B8C"/>
+        </svg>`,
         buddyOff: () => `<svg viewBox="0 0 12 12" width="12" height="12" style="display:block">
           <rect width="12" height="12" fill="#F2F2F2" stroke="#A8A89A"/>
           <rect x="4" y="2" width="4" height="4" fill="#A0A0A0"/>
@@ -1380,6 +1529,8 @@ sounds good, sending now</textarea>
         arrow: SVG.arrow,
         buddy: () => SVG.buddy(12),
         'buddy-11': () => SVG.buddy(11),
+        'room-11': () => SVG.room(11),
+        room: () => SVG.room(12),
         'buddy-off': SVG.buddyOff,
         'tri-open': SVG.triOpen,
         'tri-closed': SVG.triClosed,

@@ -17,6 +17,7 @@ import type {
   Buddy,
   ConnectionState,
   ConversationId,
+  GroupChat,
   Message,
   Roster,
   SelfAccount,
@@ -30,7 +31,7 @@ import { parseReceive } from './events.ts';
 import type { DomainEvent, IncomingMessageEvent, RawAttachment } from './events.ts';
 import { WindowManager } from './windows.ts';
 import { openStore, computeExpiresAt, deriveMessageId } from './store/index.ts';
-import type { RawContact, Store } from './store/index.ts';
+import type { RawContact, RawGroup, RawGroupMember, Store } from './store/index.ts';
 import type { Attachment } from '@shared/types';
 
 /** Pushed channels, mirroring IpcEvents in shared/types.ts. */
@@ -57,6 +58,7 @@ export class AppService {
 
   private state: ConnectionState = 'daemon-down';
   private rosterSyncing = false;
+  private groupSyncing = false;
 
   constructor(options?: { socketPath?: string; userDataDir?: string }) {
     const socketPath = options?.socketPath ?? defaultSocketPath();
@@ -171,7 +173,10 @@ export class AppService {
       // Order matters: the ACI has to be known before any send, and `listAccounts` does not
       // carry it (see resolveSelfId).
       await this.resolveSelfId();
+      // Roster first: group member names are resolved against contacts, so syncing groups
+      // against an empty buddies table would name every member by a truncated ACI.
       await this.syncRoster();
+      await this.syncSignalGroups();
     } catch {
       this.setState('daemon-down');
     }
@@ -254,6 +259,49 @@ export class AppService {
     }
   }
 
+  /**
+   * Pulls Signal group conversations into the store.
+   *
+   * Groups are not buddies and never enter the roster (SPEC.md §6) — this is what makes a
+   * group *conversation* renderable: its name for the title bar, and its members for sender
+   * attribution and the chat-room list (SPEC.md §8).
+   */
+  async syncSignalGroups(): Promise<void> {
+    if (this.account === null || this.groupSyncing) return;
+    this.groupSyncing = true;
+    try {
+      const result = await this.rpc.call('listGroups', { account: this.account });
+      if (!Array.isArray(result)) return;
+
+      const groups: RawGroup[] = result.flatMap((entry) => {
+        const record =
+          typeof entry === 'object' && entry !== null ? (entry as Record<string, unknown>) : null;
+        const id = record === null ? null : record.id;
+        if (typeof id !== 'string' || id === '') return [];
+        return [
+          {
+            id,
+            name: asString(record?.name),
+            description: asString(record?.description),
+            isMember: record?.isMember !== false,
+            isBlocked: record?.isBlocked === true,
+            messageExpirationTime: asNumber(record?.messageExpirationTime),
+            members: asMembers(record?.members),
+            admins: asMembers(record?.admins),
+          },
+        ];
+      });
+
+      this.store.signalGroups.upsertGroups(groups);
+      this.windows.broadcast(PUSH.rosterUpdated);
+    } catch {
+      // A group list we could not fetch degrades to unnamed conversations, which is survivable.
+      // Failing bring-up over it would not be.
+    } finally {
+      this.groupSyncing = false;
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Inbound
   // -------------------------------------------------------------------------
@@ -331,7 +379,8 @@ export class AppService {
           event.conversationId,
           PUSH.typing,
           event.conversationId,
-          event.isTyping
+          event.isTyping,
+          this.store.roster.displayNameFor(event.senderId)
         );
         return;
 
@@ -373,8 +422,43 @@ export class AppService {
     }
   }
 
+  /**
+   * ACIs we have already re-synced the roster for. A sender who genuinely has no contact
+   * record — someone in a group the user has never messaged — must not cause a `listContacts`
+   * round trip on every single message they send.
+   */
+  private readonly resolvedUnknownSenders = new Set<string>();
+
+  /**
+   * Fills in whatever this message referred to that we cannot yet name.
+   *
+   * Both cases are ordinary rather than exceptional: a group created since bring-up, and a
+   * group member the user has no contact record for. Sender attribution is required in group
+   * conversations (SPEC.md §8), and a room of truncated ACIs technically satisfies it while
+   * being useless — so a first sighting is worth one round trip.
+   */
+  private backfillNames(event: IncomingMessageEvent): void {
+    if (
+      isGroupConversation(event.conversationId) &&
+      !this.store.signalGroups.isKnownGroup(event.conversationId)
+    ) {
+      void this.syncSignalGroups();
+    }
+
+    if (
+      this.store.roster.getBuddy(event.senderId) === null &&
+      !this.resolvedUnknownSenders.has(event.senderId)
+    ) {
+      // signal-cli creates a recipient record when it first hears from someone, so the contact
+      // list very often knows this sender by the time we ask — just not before they spoke.
+      this.resolvedUnknownSenders.add(event.senderId);
+      void this.syncRoster();
+    }
+  }
+
   private applyIncomingMessage(event: IncomingMessageEvent): void {
     const messageId = deriveMessageId(event.senderId, event.sentAt);
+    this.backfillNames(event);
 
     // View-once media is never persisted (SPEC.md §8). `ingest` returns null for it and shreds
     // the daemon's own copy, which is written to disk before we ever see this envelope.
@@ -508,8 +592,13 @@ export class AppService {
     const selfId = this.selfId;
     if (selfId === null) throw new Error('self identity unknown');
 
-    const buddy = this.store.roster.getBuddy(conversationId);
-    const expiresAt = computeExpiresAt(buddy?.messageExpirationTime ?? 0, Date.now());
+    // The outbound default comes from whichever conversation this is. Reading only the roster
+    // meant a group's timer was always taken as 0, so a message sent into a disappearing-message
+    // group was kept forever on this machine — the one copy the group's own timer cannot reach.
+    const timer = isGroupConversation(conversationId)
+      ? (this.store.signalGroups.getGroup(conversationId)?.messageExpirationTime ?? 0)
+      : (this.store.roster.getBuddy(conversationId)?.messageExpirationTime ?? 0);
+    const expiresAt = computeExpiresAt(timer, Date.now());
     const queueId = `out-${String(Date.now())}-${Math.random().toString(36).slice(2, 8)}`;
 
     const row = this.store.messages.enqueueOutbound({
@@ -562,15 +651,33 @@ export class AppService {
   // Reads for the IPC layer
   // -------------------------------------------------------------------------
 
-  getInitial(conversationId: ConversationId): { messages: Message[]; contact: Buddy | null } {
+  getInitial(conversationId: ConversationId): {
+    messages: Message[];
+    contact: Buddy | null;
+    group: GroupChat | null;
+  } {
+    const group = isGroupConversation(conversationId)
+      ? this.store.signalGroups.getGroup(conversationId, this.selfId)
+      : null;
+
     return {
       messages: this.store.messages.getMessages(conversationId, { limit: 200 }),
-      contact: this.store.roster.getBuddy(conversationId),
+      // One window renders both kinds, so a group is handed over as a Buddy-shaped header too.
+      // The `group` field is what the renderer switches on; this is only the chrome's identity.
+      contact: group !== null ? groupAsBuddy(group) : this.store.roster.getBuddy(conversationId),
+      group,
     };
   }
 
   getRoster(): Roster {
     return this.store.roster.getRoster();
+  }
+
+  /** Group conversations, for the buddy list's chat-room section. */
+  getChats(): GroupChat[] {
+    // Groups the user has left keep their history but are not places they can go back to, so
+    // they are not offered as somewhere to start a conversation.
+    return this.store.signalGroups.listGroups(this.selfId).filter((group) => group.isMember);
   }
 
   get roster() {
@@ -626,12 +733,48 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** `listGroups[].members` / `.admins`. Entries with no ACI are kept; the store drops them. */
+function asMembers(value: unknown): RawGroupMember[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const record = entry as Record<string, unknown>;
+    return [
+      {
+        uuid: asString(record.uuid),
+        number: asString(record.number),
+        isAdmin: record.isAdmin === true,
+      },
+    ];
+  });
+}
+
 function joinNames(given: string | null, family: string | null): string | null {
   const joined = [given, family]
     .filter((part) => part !== null)
     .join(' ')
     .trim();
   return joined === '' ? null : joined;
+}
+
+/**
+ * A group in the shape the IM window's chrome expects.
+ *
+ * `unregistered` carries "you are no longer in this group": the window already refuses to send
+ * to an unregistered contact and explains why, and leaving a group has the same consequence.
+ * Reusing the flag means there is one code path that can disable sending, not two.
+ */
+function groupAsBuddy(group: GroupChat): Buddy {
+  return {
+    id: group.id,
+    number: null,
+    displayName: group.name,
+    nickname: null,
+    messageExpirationTime: group.messageExpirationTime,
+    blocked: group.blocked,
+    hidden: false,
+    unregistered: !group.isMember,
+  };
 }
 
 /**

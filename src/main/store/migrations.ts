@@ -261,6 +261,38 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: 'signal-groups',
+    up: (db) => {
+      // Signal group conversations. Nothing to do with `buddy_groups`, which is the local
+      // buddy-list folder from SPEC.md §6 — the two are never joined and never share an id
+      // space (one is base64 text from the service, the other a local INTEGER rowid).
+      //
+      // `signal_group_members.member_id` is deliberately NOT a foreign key to `buddies`. Group
+      // membership is decided by the service, and a member the user has no contact record for
+      // is ordinary — making it an FK would drop exactly the members whose names are hardest
+      // to resolve, which is the opposite of what SPEC.md §8 requires.
+      db.exec(`
+        CREATE TABLE signal_groups (
+          id                      TEXT    PRIMARY KEY NOT NULL,  -- base64, as sent by the daemon
+          name                    TEXT    NOT NULL DEFAULT '',
+          description             TEXT,
+          is_member               INTEGER NOT NULL DEFAULT 1,
+          is_blocked              INTEGER NOT NULL DEFAULT 0,
+          message_expiration_time INTEGER NOT NULL DEFAULT 0,    -- seconds; 0 = disabled
+          updated_at              INTEGER NOT NULL DEFAULT 0
+        ) STRICT;
+
+        CREATE TABLE signal_group_members (
+          group_id  TEXT    NOT NULL REFERENCES signal_groups(id) ON DELETE CASCADE,
+          member_id TEXT    NOT NULL,                            -- ACI; may not be a contact
+          is_admin  INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (group_id, member_id)
+        ) STRICT;
+      `);
+    },
+  },
 ];
 
 /** Highest schema version this build knows how to produce. */

@@ -70,6 +70,26 @@ export function BuddyGlyph({ size = 12, className, title }: IconProps) {
   );
 }
 
+/**
+ * Chat room — two figures, deliberately not the single-figure buddy glyph.
+ *
+ * A room in the buddy list is not a person, and the two must be tellable apart at a glance:
+ * double-clicking one opens a conversation with many people in it, and that is worth knowing
+ * before you type.
+ */
+export function ChatRoomGlyph({ size = 12, className, title }: IconProps) {
+  return (
+    <svg viewBox="0 0 12 12" style={box(size)} className={className} aria-hidden={!title}>
+      {title ? <title>{title}</title> : null}
+      <rect x="0" y="0" width="12" height="12" fill="#FFFFFF" stroke="#7A7A6A" />
+      <rect x="1.5" y="2" width="3" height="3" fill="#8C6B5B" />
+      <path d="M0.5 10 L0.5 8.5 Q0.5 7 3 7 Q5.5 7 5.5 8.5 L5.5 10 Z" fill="#8C6B5B" />
+      <rect x="7.5" y="2" width="3" height="3" fill="#5B6B8C" />
+      <path d="M6.5 10 L6.5 8.5 Q6.5 7 9 7 Q11.5 7 11.5 8.5 L11.5 10 Z" fill="#5B6B8C" />
+    </svg>
+  );
+}
+
 /** Buddy glyph variant for contacts that are no longer reachable. */
 export function BuddyGlyphInactive({ size = 12, className, title }: IconProps) {
   return (

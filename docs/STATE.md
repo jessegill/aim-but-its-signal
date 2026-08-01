@@ -9,11 +9,13 @@ Last updated: 2026-07-31.
 
 ## Status in one line
 
-Phases 1–5 are written, tested and green — **and the app has never been run end to end.**
+Phases 1–5 are written, tested and green, the app runs against the live account, and group
+conversations work.
 
 `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`, `npm test`
-(84 tests) all pass. Every module is verified in isolation and the protocol layer is verified
-against real captured traffic. The daemon has never talked to the live service.
+(91 tests) all pass. The first launch found four bugs no test could have (see below); a second
+pass added Signal group conversations. Live: 73 contacts and 43 groups load, the buddy list
+renders both, and the daemon stays up.
 
 ---
 
@@ -74,6 +76,15 @@ preference, not a default.
 (SPEC §7). The iconic `Buddies (3/8)` form is kept with a message-derived number and a tooltip
 saying so.
 
+**Sender names are resolved on read, never stored on the message row.** A renamed contact — or
+one given a local nickname — is renamed through their whole history at once. The alternative
+leaves old names on old messages, which is a lie the user cannot correct.
+
+**A Signal group is a conversation, not a roster entry.** `signal_groups` is a separate table
+from `buddy_groups` and the two are never joined; the roster is people (SPEC §6), a group is a
+place. Rooms get their own fixed section in the buddy list, below the user's own groups, so a
+room can never be dragged into one.
+
 ---
 
 ## Bugs real traffic found that source-reading did not
@@ -98,6 +109,13 @@ authoritative.
 Verified correct with no change needed: delete-for-everyone, reactions add/remove, quotes,
 group routing, disappearing timers, `envelope.timestamp === sentMessage.timestamp`.
 
+## Bugs the first launch found
+
+Four more, all at boundaries the tests stub out. Fixed in `d574a62`; the detail is in that
+commit message. In short: `listAccounts` does not return the ACI (it has to come from
+`listContacts`), sends were validated *after* the message had gone out, an unlistened `error`
+emission killed startup, and window geometry was written to a closed database on quit.
+
 ---
 
 ## Ownership map
@@ -110,7 +128,8 @@ group routing, disappearing timers, `envelope.timestamp === sentMessage.timestam
 | `src/main/service.ts` | The single owner: store + daemon + rpc + windows |
 | `src/main/windows.ts` | `Map<ConversationId, BrowserWindow>`, geometry, flash |
 | `src/main/ipc.ts` | Thin handlers, every argument validated |
-| `src/main/store/**` | Encrypted SQLite, expiry, outbound queue, 65 tests |
+| `src/main/store/signal-groups.ts` | Signal group conversations and their membership |
+| `src/main/store/**` | Encrypted SQLite, expiry, outbound queue, 72 tests |
 | `src/renderer/ui/**` | AIM 5.1 components + `showcase.html` (open directly in a browser) |
 | `src/renderer/{buddylist,im,signon}/**` | The three window apps |
 | `src/shared/types.ts` | IPC surface and domain types |
@@ -121,11 +140,13 @@ group routing, disappearing timers, `envelope.timestamp === sentMessage.timestam
 
 Decisions, not typing:
 
-- **Group messages attribute to the wrong name.** No channel supplies per-sender names for
-  group conversations, so `MessageLog.resolveName` cannot be provided. SPEC §8 requires sender
-  attribution — group chat is effectively broken until this exists.
 - **No file picker, no attachment-open, no safety-number-verify UI.** The affordances render and
   name what is missing.
+- **Group membership changes are not events.** Someone joining or leaving is only noticed at the
+  next `listGroups` sync (bring-up, or the first message from an unknown group). There is no
+  "X has entered the room" line.
+- **Group admin actions are absent** — no create, rename, add/remove member, or leave. The store
+  records `isAdmin`; nothing acts on it.
 - **Formatting toolbar is decorative** — `im:send` takes a plain body.
 - **`group:reorder` semantics** — the renderer sends a desired 0-based index and expects main to
   re-index siblings. Undefined in the contract.
@@ -135,7 +156,7 @@ Decisions, not typing:
 
 ---
 
-## Next: the first launch
+## Running it
 
 **The capture session and the app cannot run at the same time** — signal-cli locks the account
 data directory, and whichever starts second fails to acquire it. Kill any stray daemon first:
@@ -152,20 +173,28 @@ cd ~/Projects/aim-but-its-signal
 npm run dev
 ```
 
-The app spawns its own daemon on its own socket (`/tmp/aim-<uid>/signal.sock`).
+The app spawns its own daemon on its own socket (`/tmp/aim-<uid>/signal.sock`). Expect the
+daemon's first startup to be slow — it is a JVM native image doing account setup.
 
-What to watch, in order of likelihood of being wrong:
+Confirmed working against the live account: bring-up, `listAccounts` → `listContacts` self
+resolution, roster load (73 contacts), group sync (43 groups), and the buddy list rendering
+both sections.
 
-1. **Sign-on window.** Least real-world exercise of anything in the codebase. The service opens
+Still unexercised live, in order of likelihood of being wrong:
+
+1. **Opening a group window.** Double-click a room under **Chat Rooms**. The group id is base64,
+   so it travels through the window's query string percent-encoded — worth confirming the title
+   bar shows the group name and the member list is populated rather than empty.
+2. **Sign-on window.** Least real-world exercise of anything in the codebase. The service opens
    the buddy list first and swaps to sign-on only if no account turns out to be linked.
-2. **`listAccounts` shape in multi-account mode.** `onRpcConnected` reads `number` and `uuid`
-   off the first entry; if that shape differs, the app decides it is unlinked.
-3. **Roster load** — 99 contacts, and display-name resolution has a fallback chain.
-4. **Opening an IM window** and whether geometry persists across a reopen.
-5. **A live inbound message** routing to the right window, and the buddy list receiving it too
+3. **Opening a 1:1 IM window** and whether geometry persists across a reopen.
+4. **A live inbound message** routing to the right window, and the buddy list receiving it too
    for unread counts.
+5. **A message from a group member who is not a contact.** Should show a truncated ACI, trigger
+   one `listContacts` refresh, and then resolve to a real name in place without reopening.
 
-Expect the daemon's first startup to be slow — it is a JVM native image doing account setup.
+Note there is no way to synthesize a click from a shell without assistive access, so anything
+needing a double-click has to be checked by hand.
 
 ---
 

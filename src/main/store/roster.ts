@@ -50,6 +50,8 @@ export interface RosterStore {
   ensureDefaultGroup(): GroupId;
   upsertContacts(contacts: RawContact[], now?: number): number;
   getBuddy(id: BuddyId): Buddy | null;
+  /** The name to render for any ACI, contact or not. See {@link resolveNames}. */
+  displayNameFor(id: BuddyId): string;
   listBuddies(): Buddy[];
   getRoster(): Roster;
   setNickname(id: BuddyId, nickname: string | null): void;
@@ -94,6 +96,50 @@ export function resolveDisplayName(contact: RawContact): string {
     if (candidate && candidate.trim().length > 0) return candidate.trim();
   }
   return contact.uuid.slice(0, 8);
+}
+
+/**
+ * The name to render for someone, given only their ACI.
+ *
+ * Distinct from {@link resolveDisplayName}, which turns a *contact record* into a name at sync
+ * time. This one answers the question the UI actually asks — "who sent this?" — for any ACI,
+ * including group members the user has no contact record for, and it applies the local
+ * nickname override so one person reads the same in every window.
+ *
+ * Resolved on read rather than stored alongside each message: names change, and a message that
+ * still shows an old one is a small lie the user cannot correct.
+ */
+export function resolveNames(db: StoreDatabase, ids: Iterable<BuddyId>): Map<BuddyId, string> {
+  const wanted = [...new Set(ids)].filter((id) => typeof id === 'string' && id.length > 0);
+  const out = new Map<BuddyId, string>();
+  if (wanted.length === 0) return out;
+
+  // Chunked: SQLite's default parameter limit is 32766, and a long-lived group conversation can
+  // reach it. Silently truncating would leave a handful of lines anonymous for no visible reason.
+  const CHUNK = 500;
+  for (let i = 0; i < wanted.length; i += CHUNK) {
+    const chunk = wanted.slice(i, i + CHUNK);
+    const rows = db.raw
+      .prepare(
+        `SELECT id, nickname, display_name FROM buddies
+          WHERE id IN (${chunk.map(() => '?').join(',')})`
+      )
+      .all(...chunk) as { id: string; nickname: string | null; display_name: string }[];
+    for (const row of rows) {
+      const nick = row.nickname?.trim();
+      const name = nick !== undefined && nick.length > 0 ? nick : row.display_name.trim();
+      if (name.length > 0) out.set(row.id, name);
+    }
+  }
+
+  // Anyone with no row, or a row whose name is blank, still gets something renderable.
+  for (const id of wanted) if (!out.has(id)) out.set(id, shortAci(id));
+  return out;
+}
+
+/** The last-resort name. Matches the fallback in {@link resolveDisplayName}. */
+export function shortAci(id: BuddyId): string {
+  return id.slice(0, 8);
 }
 
 function bool(value: boolean | null | undefined): number {
@@ -201,6 +247,10 @@ export function createRosterStore(db: StoreDatabase): RosterStore {
     getBuddy(id) {
       const row = raw.prepare(`SELECT * FROM buddies WHERE id = ?`).get(id) as BuddyRow | undefined;
       return row ? rowToBuddy(row) : null;
+    },
+
+    displayNameFor(id) {
+      return resolveNames(db, [id]).get(id) ?? shortAci(id);
     },
 
     listBuddies() {

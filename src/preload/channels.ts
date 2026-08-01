@@ -19,6 +19,7 @@ export const REQUEST_CHANNELS = [
   'im:setTyping',
 
   'roster:get',
+  'chats:get',
   'roster:move',
   'roster:setNick',
 

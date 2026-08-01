@@ -108,6 +108,15 @@ export interface Message {
   id: string;
   conversationId: ConversationId;
   senderId: BuddyId;
+  /**
+   * The sender's display name, resolved when the message is read rather than stored with it,
+   * so a contact who is renamed is renamed everywhere at once.
+   *
+   * Required, not optional: in a group conversation the window has no single "other party" to
+   * fall back on, and SPEC.md §8 makes sender attribution mandatory there. Falls back to a
+   * shortened ACI for a sender who is in no roster, so a line is never anonymous.
+   */
+  senderName: string;
   /** True when this account sent it — including via sync from another device. */
   outgoing: boolean;
   body: string | null;
@@ -128,6 +137,38 @@ export interface Message {
 }
 
 // ---------------------------------------------------------------------------
+// Signal groups
+// ---------------------------------------------------------------------------
+
+/**
+ * A Signal group conversation.
+ *
+ * Deliberately not a `BuddyGroup` — that is the local, user-defined buddy-list folder from
+ * SPEC.md §6 and shares nothing with this but the word. A `GroupChat` is a real conversation
+ * on the service, keyed by the base64 group id that arrives on `dataMessage.groupInfo.groupId`
+ * and goes back out as the `groupId` param of `send`.
+ */
+export interface GroupChat {
+  id: ConversationId;
+  name: string;
+  members: GroupMember[];
+  /** Per-group disappearing-message timer in seconds. 0 = disabled. */
+  messageExpirationTime: number;
+  blocked: boolean;
+  /** False once the user has left or been removed: history stays readable, sends will fail. */
+  isMember: boolean;
+}
+
+export interface GroupMember {
+  id: BuddyId;
+  /** Resolved the same way a buddy's name is, so one person reads the same everywhere. */
+  name: string;
+  isAdmin: boolean;
+  /** True for the local account's own entry. */
+  isSelf: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Connection
 // ---------------------------------------------------------------------------
 
@@ -139,7 +180,16 @@ export type ConnectionState = 'linked' | 'linking' | 'unlinked' | 'daemon-down';
 
 /** renderer → main. Every send routes through main; renderers are network-silent. */
 export interface IpcRequests {
-  'im:getInitial': (conversationId: ConversationId) => { messages: Message[]; contact: Buddy };
+  /**
+   * `contact` is the conversation's header identity and is present for both kinds: for a group
+   * it is synthesized from the group so one window can render either. `group` is what tells
+   * them apart, and carries the roster the chat-room window needs.
+   */
+  'im:getInitial': (conversationId: ConversationId) => {
+    messages: Message[];
+    contact: Buddy | null;
+    group: GroupChat | null;
+  };
   'im:subscribe': (conversationId: ConversationId) => void;
   'im:send': (
     conversationId: ConversationId,
@@ -150,6 +200,12 @@ export interface IpcRequests {
   'im:setTyping': (conversationId: ConversationId, isTyping: boolean) => void;
 
   'roster:get': () => Roster;
+  /**
+   * Signal group conversations. Separate from `roster:get` because a group is not a roster
+   * entry: the roster is people (SPEC.md §6) and these are conversations, with their own
+   * membership that no buddy group has.
+   */
+  'chats:get': () => GroupChat[];
   'roster:move': (buddyId: BuddyId, groupId: GroupId) => void;
   'roster:setNick': (buddyId: BuddyId, nickname: string | null) => void;
 
@@ -182,7 +238,11 @@ export interface SelfAccount {
 /** main → renderer, pushed. */
 export interface IpcEvents {
   'im:message': (conversationId: ConversationId, message: Message) => void;
-  'im:typing': (conversationId: ConversationId, isTyping: boolean) => void;
+  /**
+   * `senderName` is who is typing. Carried because in a group the window cannot infer it —
+   * there is no single other party — and "someone is typing" is a worse answer than a name.
+   */
+  'im:typing': (conversationId: ConversationId, isTyping: boolean, senderName: string) => void;
   'im:receipt': (conversationId: ConversationId, messageId: string, state: ReceiptState) => void;
   /** A message expired or was deleted for everyone; the renderer must drop it. */
   'im:removed': (conversationId: ConversationId, messageId: string) => void;

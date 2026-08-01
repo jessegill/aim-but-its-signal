@@ -25,7 +25,7 @@ files:
 # SPEC.md §8's encryption-at-rest requirement. Keep this path in sync with
 # package.json > dependencies.
 asarUnpack:
-  - '**/node_modules/better-sqlite3-multiple-ciphers/**'
+  - "**/node_modules/better-sqlite3-multiple-ciphers/**"
 
 # Rebuilding is handled by `postinstall` (@electron/rebuild), which downloads the publisher's
 # Electron-ABI prebuild rather than compiling. Leaving electron-builder's own rebuild off keeps
@@ -49,9 +49,9 @@ mac:
         - arm64
 
   # Hard floor. The app refuses to launch on older systems rather than failing obscurely.
-  minimumSystemVersion: '15.0'
+  minimumSystemVersion: "15.0"
   extendInfo:
-    LSMinimumSystemVersion: '15.0'
+    LSMinimumSystemVersion: "15.0"
 
   icon: resources/icons/AIMgnal.icns
 

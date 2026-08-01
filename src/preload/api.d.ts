@@ -1,12 +1,7 @@
-import type {
-  IpcEventChannel,
-  IpcEvents,
-  IpcRequestChannel,
-  IpcRequests,
-} from '@shared/types'
+import type { IpcEventChannel, IpcEvents, IpcRequestChannel, IpcRequests } from '@shared/types';
 
 /** Detach a pushed-event listener. Always call this on unmount. */
-export type Unsubscribe = () => void
+export type Unsubscribe = () => void;
 
 /**
  * renderer → main. Channel and argument types are both derived from IpcRequests, so a typo or
@@ -15,18 +10,18 @@ export type Unsubscribe = () => void
 export type IpcInvoke = <K extends IpcRequestChannel>(
   channel: K,
   ...args: Parameters<IpcRequests[K]>
-) => Promise<Awaited<ReturnType<IpcRequests[K]>>>
+) => Promise<Awaited<ReturnType<IpcRequests[K]>>>;
 
 /** main → renderer, pushed. Returns an unsubscribe function. */
 export type IpcSubscribe = <K extends IpcEventChannel>(
   channel: K,
-  listener: (...args: Parameters<IpcEvents[K]>) => void,
-) => Unsubscribe
+  listener: (...args: Parameters<IpcEvents[K]>) => void
+) => Unsubscribe;
 
 /** The whole domain IPC surface exposed to renderers. Nothing else crosses the bridge. */
 export interface RetroIpcApi {
-  readonly invoke: IpcInvoke
-  readonly on: IpcSubscribe
+  readonly invoke: IpcInvoke;
+  readonly on: IpcSubscribe;
 }
 
 /**
@@ -34,17 +29,17 @@ export interface RetroIpcApi {
  * frameless, so these replace the native macOS traffic lights.
  */
 export interface WindowControlsApi {
-  readonly minimize: () => void
+  readonly minimize: () => void;
   /** Toggles between maximized and restored. */
-  readonly maximize: () => void
-  readonly close: () => void
-  readonly isMaximized: () => Promise<boolean>
-  readonly onMaximizedChanged: (listener: (isMaximized: boolean) => void) => Unsubscribe
+  readonly maximize: () => void;
+  readonly close: () => void;
+  readonly isMaximized: () => Promise<boolean>;
+  readonly onMaximizedChanged: (listener: (isMaximized: boolean) => void) => Unsubscribe;
 }
 
 declare global {
   interface Window {
-    readonly api: RetroIpcApi
-    readonly windowControls: WindowControlsApi
+    readonly api: RetroIpcApi;
+    readonly windowControls: WindowControlsApi;
   }
 }

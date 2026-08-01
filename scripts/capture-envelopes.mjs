@@ -118,7 +118,7 @@ function classify(msg) {
   if (env.receiptMessage) {
     const r = env.receiptMessage;
     tags.push(
-      `receipt:${r.isDelivery ? 'delivery' : r.isRead ? 'read' : r.isViewed ? 'viewed' : 'unknown'}`,
+      `receipt:${r.isDelivery ? 'delivery' : r.isRead ? 'read' : r.isViewed ? 'viewed' : 'unknown'}`
     );
   }
   if (env.callMessage) tags.push('call');
@@ -175,7 +175,7 @@ function redact(obj) {
   return json
     .replace(/\+\d{7,15}/g, (m) => placeholderFor(numbers, m, '+1555000'))
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (m) =>
-      placeholderFor(uuids, m, 'UUID-'),
+      placeholderFor(uuids, m, 'UUID-')
     )
     .replace(/"(sourceName|name|groupName|givenName|familyName)":"[^"]*"/g, '"$1":"Alice"');
 }
@@ -217,7 +217,7 @@ sock.on('error', (err) => {
   console.error(`socket error on ${opts.socket}: ${err.message}`);
   console.error('Is the daemon running? Try:');
   console.error(
-    `  signal-cli -a +1XXXXXXXXXX daemon --socket ${opts.socket} --receive-mode on-connection --no-receive-stdout`,
+    `  signal-cli -a +1XXXXXXXXXX daemon --socket ${opts.socket} --receive-mode on-connection --no-receive-stdout`
   );
   process.exit(1);
 });
@@ -273,9 +273,7 @@ sock.on('connect', async () => {
   if (opts.subscribe) {
     const r = await call('subscribeReceive');
     console.error(`subscribeReceive -> subscription ${JSON.stringify(r?.result)}`);
-    console.error(
-      'NOTE: with --receive-mode on-start/on-connection this duplicates every event.',
-    );
+    console.error('NOTE: with --receive-mode on-start/on-connection this duplicates every event.');
   }
   console.error('waiting for inbound events... (Ctrl-C to stop)\n');
 });

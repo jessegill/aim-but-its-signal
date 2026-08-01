@@ -1,4 +1,4 @@
-import type { IpcEventChannel, IpcRequestChannel } from '@shared/types'
+import type { IpcEventChannel, IpcRequestChannel } from '@shared/types';
 
 /**
  * Runtime allowlists for the contextBridge.
@@ -34,7 +34,7 @@ export const REQUEST_CHANNELS = [
   'connection:startLink',
 
   'self:get',
-] as const satisfies readonly IpcRequestChannel[]
+] as const satisfies readonly IpcRequestChannel[];
 
 export const EVENT_CHANNELS = [
   'im:message',
@@ -44,7 +44,7 @@ export const EVENT_CHANNELS = [
   'roster:updated',
   'connection:state',
   'connection:linkUri',
-] as const satisfies readonly IpcEventChannel[]
+] as const satisfies readonly IpcEventChannel[];
 
 /**
  * Window chrome control. Every window is frameless (`frame: false`) so the UI can draw the
@@ -60,17 +60,17 @@ export const WINDOW_CONTROL_CHANNELS = {
   close: 'window:close',
   isMaximized: 'window:isMaximized',
   maximizedChanged: 'window:maximizedChanged',
-} as const
+} as const;
 
 // --- exhaustiveness guards ---------------------------------------------------------------
 // If these ever error, a channel was added to src/shared/types.ts without being allowlisted
 // above, and the renderer would be blocked at runtime.
 
-type AssertNever<T extends never> = T
+type AssertNever<T extends never> = T;
 
 export type _NoUnlistedRequestChannels = AssertNever<
   Exclude<IpcRequestChannel, (typeof REQUEST_CHANNELS)[number]>
->
+>;
 export type _NoUnlistedEventChannels = AssertNever<
   Exclude<IpcEventChannel, (typeof EVENT_CHANNELS)[number]>
->
+>;

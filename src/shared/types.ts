@@ -144,7 +144,7 @@ export interface IpcRequests {
   'im:send': (
     conversationId: ConversationId,
     body: string,
-    attachments?: string[],
+    attachments?: string[]
   ) => { messageId: string };
   'im:markRead': (conversationId: ConversationId) => void;
   'im:setTyping': (conversationId: ConversationId, isTyping: boolean) => void;
@@ -183,11 +183,7 @@ export interface SelfAccount {
 export interface IpcEvents {
   'im:message': (conversationId: ConversationId, message: Message) => void;
   'im:typing': (conversationId: ConversationId, isTyping: boolean) => void;
-  'im:receipt': (
-    conversationId: ConversationId,
-    messageId: string,
-    state: ReceiptState,
-  ) => void;
+  'im:receipt': (conversationId: ConversationId, messageId: string, state: ReceiptState) => void;
   /** A message expired or was deleted for everyone; the renderer must drop it. */
   'im:removed': (conversationId: ConversationId, messageId: string) => void;
   'roster:updated': () => void;

@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '26'
+  NODE_VERSION: "26"
   # electron-builder / @electron/rebuild download slices for the host arch only.
   npm_config_arch: arm64
   npm_config_target_arch: arm64
@@ -155,7 +155,7 @@ jobs:
 
       - name: Verify native SQLite under the Electron runtime
         env:
-          ELECTRON_RUN_AS_NODE: '1'
+          ELECTRON_RUN_AS_NODE: "1"
         run: npx --no-install electron .github/scripts/verify-electron-abi.cjs
 
       # ---- build ------------------------------------------------------------

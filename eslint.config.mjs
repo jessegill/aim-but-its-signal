@@ -49,10 +49,7 @@ export default tseslint.config(
   // ---------------------------------------------------------------------------
   {
     files: ['**/*.{ts,tsx,mts,cts}'],
-    extends: [
-      ...tseslint.configs.recommendedTypeChecked,
-      ...tseslint.configs.stylisticTypeChecked,
-    ],
+    extends: [...tseslint.configs.recommendedTypeChecked, ...tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: {
         projectService: {

@@ -31,6 +31,9 @@ export const REQUEST_CHANNELS = [
   'window:openIm',
 
   'connection:get',
+  'connection:startLink',
+
+  'self:get',
 ] as const satisfies readonly IpcRequestChannel[]
 
 export const EVENT_CHANNELS = [
@@ -40,6 +43,7 @@ export const EVENT_CHANNELS = [
   'im:removed',
   'roster:updated',
   'connection:state',
+  'connection:linkUri',
 ] as const satisfies readonly IpcEventChannel[]
 
 /**

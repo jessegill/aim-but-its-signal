@@ -162,6 +162,21 @@ export interface IpcRequests {
   'window:openIm': (buddyId: BuddyId) => void;
 
   'connection:get': () => ConnectionState;
+  /**
+   * Begins device linking and returns the `sgnl://linkdevice?…` URI to render as a QR code.
+   * This is also the relink path — SPEC.md §8 requires a way to re-scan.
+   */
+  'connection:startLink': () => string;
+
+  /** The local account, for the buddy-list banner and own-message attribution. */
+  'self:get': () => SelfAccount | null;
+}
+
+/** The linked account itself. Never a roster entry — the user is not their own buddy. */
+export interface SelfAccount {
+  id: BuddyId;
+  number: string | null;
+  displayName: string;
 }
 
 /** main → renderer, pushed. */
@@ -177,6 +192,11 @@ export interface IpcEvents {
   'im:removed': (conversationId: ConversationId, messageId: string) => void;
   'roster:updated': () => void;
   'connection:state': (state: ConnectionState) => void;
+  /**
+   * A fresh device-linking URI. Pushed rather than returned once, because the URI rotates on
+   * every relink attempt and the sign-on window has to redraw its QR without reloading.
+   */
+  'connection:linkUri': (uri: string) => void;
 }
 
 export type IpcRequestChannel = keyof IpcRequests;

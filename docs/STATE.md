@@ -4,7 +4,7 @@ Working notes for picking this up cold. Complements `SPEC.md` (what to build),
 `docs/signal-cli-rpc.md` (what the daemon actually does), and `docs/ROADMAP.md` (what is next).
 This file is the present tense; the roadmap is the future one.
 
-Last updated: 2026-07-31.
+Last updated: 2026-08-01.
 
 ---
 
@@ -14,7 +14,7 @@ Phases 1–5 are written, tested and green, the app runs against the live accoun
 conversations work.
 
 `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`, `npm test`
-(98 tests) all pass, `npm run package` produces `release/AIMgnal-0.1.0-arm64.dmg` (117 MB), and
+(103 tests) all pass, `npm run package` produces `release/AIMgnal-0.1.0-arm64.dmg` (117 MB), and
 that packaged build has been launched from Finder: buddy list, live group chat rooms with named
 members, and the daemon resolved from Homebrew. The first launch found four bugs no test could
 have, and the first *packaged* launch found three more (both lists below).
@@ -136,6 +136,25 @@ authoritative.
 Verified correct with no change needed: delete-for-everyone, reactions add/remove, quotes,
 group routing, disappearing timers, `envelope.timestamp === sentMessage.timestamp`.
 
+## The bug using it found
+
+**Outgoing messages were stuck on "sending…" forever.** Reported for group chats; it affected
+every conversation. Two bugs, the second being why the first never healed. Fixed in `3efeeaf`.
+
+1. **The optimistic row overwrote the authoritative one.** `im:send` resolves only *after* main
+   has persisted and pushed the message, and Electron delivers that push before the invoke
+   reply — so the renderer's "sending" placeholder landed on top of a row already marked `sent`
+   and dragged it backwards. The placeholder now yields to a row that has already arrived.
+2. **Receipts resolved against the wrong party.** A delivery receipt is sent *to* us *by* the
+   recipient, but the message it acknowledges is one *we* wrote: the key is `(selfId, sentAt)`.
+   The code used the ACI of whoever sent the receipt, which matches no row this app has ever
+   written, so the UPDATE hit nothing and the pushed id referred to no message. Nothing outgoing
+   could ever advance.
+
+Receipts are now monotonic as well. In a group every member acknowledges separately and in
+arbitrary order, so a late `delivered` would otherwise drag an already-`read` message back down
+and the state would flap for as long as receipts kept arriving.
+
 ## Bugs the first *packaged* build found
 
 None of these could happen in `npm run dev`, and all three were invisible: the app appeared in
@@ -176,7 +195,7 @@ emission killed startup, and window geometry was written to a closed database on
 | `src/main/ipc.ts` | Thin handlers, every argument validated |
 | `src/main/store/signal-groups.ts` | Signal group conversations and their membership |
 | `src/main/store/shelves.ts` | Pinned / archived state, keyed by conversation |
-| `src/main/store/**` | Encrypted SQLite, expiry, outbound queue, 78 tests |
+| `src/main/store/**` | Encrypted SQLite, expiry, outbound queue, 83 tests |
 | `src/renderer/ui/**` | AIM 5.1 components + `showcase.html` (open directly in a browser) |
 | `src/renderer/{buddylist,im,signon}/**` | The three window apps |
 | `src/shared/types.ts` | IPC surface and domain types |

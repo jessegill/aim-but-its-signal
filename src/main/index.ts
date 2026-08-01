@@ -8,7 +8,7 @@
  * macOS / Apple Silicon only, minimum macOS 15.
  */
 
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 
 import { WINDOW_CONTROL_CHANNELS } from '../preload/channels';
 import { AppService } from './service.ts';
@@ -99,16 +99,31 @@ app.on('second-instance', () => {
 void app.whenReady().then(() => {
   registerWindowControls();
 
-  // The store's encryption key comes from the macOS Keychain via safeStorage, which is not
-  // reliably available before the app is ready — hence construction here rather than at import.
-  service = new AppService();
-  registerIpc(service);
-  service.start();
+  try {
+    // The store's encryption key comes from the macOS Keychain via safeStorage, which is not
+    // reliably available before the app is ready — hence construction here rather than at import.
+    service = new AppService();
+    registerIpc(service);
+    service.start();
 
-  // The buddy list opens immediately; the service swaps in the sign-on window if it turns out
-  // no account is linked. Showing the buddy list first avoids a flash of sign-on UI on every
-  // launch for the common case.
-  service.windows.openBuddyList();
+    // The buddy list opens immediately; the service swaps in the sign-on window if it turns out
+    // no account is linked. Showing the buddy list first avoids a flash of sign-on UI on every
+    // launch for the common case.
+    service.windows.openBuddyList();
+  } catch (error) {
+    // Anything thrown here — an unreadable database, a refused Keychain, a failed migration —
+    // used to leave a running app with no window and no explanation: the process sits in the
+    // Dock looking alive while nothing works, and stderr goes nowhere a Finder launch can see.
+    // A dialog is the only channel that reaches the user before a window exists.
+    const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    console.error(`[startup] ${detail}`);
+    dialog.showErrorBox(
+      'AIMgnal could not start',
+      `The app failed during start-up and has no window to show you.\n\n${detail}`
+    );
+    app.exit(1);
+    return;
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

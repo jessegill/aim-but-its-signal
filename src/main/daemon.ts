@@ -11,11 +11,53 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { chmodSync, mkdirSync, rmSync } from 'node:fs';
+import { accessSync, chmodSync, constants, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 
 import type { ConnectionState } from '@shared/types';
+
+/**
+ * Absolute locations to look for signal-cli, in preference order.
+ *
+ * A bare `signal-cli` is not enough. An app launched from Finder inherits a minimal PATH
+ * (`/usr/bin:/bin:/usr/sbin:/sbin`) with no Homebrew in it, so a packaged build resolves the
+ * name to nothing and the daemon dies with ENOENT before it can say anything useful. This was
+ * invisible in development, where the app is started from a shell that *does* have Homebrew on
+ * PATH — the same binary works one way and fails the other.
+ */
+const SIGNAL_CLI_CANDIDATES = [
+  '/opt/homebrew/bin/signal-cli', // Homebrew, Apple Silicon — where it is on this machine
+  '/usr/local/bin/signal-cli', // Homebrew, Intel
+  '/opt/local/bin/signal-cli', // MacPorts
+  join(homedir(), '.local/bin/signal-cli'),
+  '/usr/bin/signal-cli',
+];
+
+/** Directories added to the spawned daemon's PATH, for whatever it shells out to itself. */
+const EXTRA_PATH = ['/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin'];
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Finds the signal-cli executable.
+ *
+ * `AIMGNAL_SIGNAL_CLI` overrides everything, so a non-standard install needs no code change.
+ * Falling back to the bare name matters: it keeps a PATH-based install working even if it lives
+ * somewhere this list has never heard of.
+ */
+export function resolveSignalCli(): string {
+  const override = process.env.AIMGNAL_SIGNAL_CLI;
+  if (override !== undefined && override !== '') return override;
+  return SIGNAL_CLI_CANDIDATES.find(isExecutable) ?? 'signal-cli';
+}
 
 /**
  * The socket lives in a private 0700 directory rather than directly in a world-readable temp
@@ -81,7 +123,7 @@ export class SignalDaemon extends EventEmitter {
 
   constructor(options: DaemonOptions) {
     super();
-    this.binary = options.binary ?? 'signal-cli';
+    this.binary = options.binary ?? resolveSignalCli();
     this.socketPath = options.socketPath;
     this.minBackoffMs = options.minBackoffMs ?? 500;
     this.maxBackoffMs = options.maxBackoffMs ?? 15_000;
@@ -129,7 +171,15 @@ export class SignalDaemon extends EventEmitter {
         'on-connection',
         '--no-receive-stdout',
       ],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // Same reasoning as resolveSignalCli: a Finder-launched app has a minimal PATH, and
+        // signal-cli is a GraalVM image that may look things up for itself.
+        env: {
+          ...process.env,
+          PATH: [...EXTRA_PATH, process.env.PATH ?? '/usr/bin:/bin'].join(':'),
+        },
+      }
     );
     this.child = child;
 

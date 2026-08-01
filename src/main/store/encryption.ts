@@ -121,13 +121,41 @@ export function assertSafeDatabaseLocation(dbPath: string): void {
     }
   }
 
-  // Never inside the source tree — that is how databases get committed or synced by accident.
-  if (isInside(resolved, process.cwd())) {
+  // Never inside a source tree — that is how databases get committed or synced by accident.
+  const tree = enclosingSourceTree(resolved);
+  if (tree !== null) {
     throw new UnsafeDatabaseLocationError(
-      `Refusing to open the message database at ${resolved}: it is inside the working ` +
-        `directory (${process.cwd()}). Use app.getPath('userData').`
+      `Refusing to open the message database at ${resolved}: it is inside the source tree at ` +
+        `${tree}. Use app.getPath('userData').`
     );
   }
+}
+
+/**
+ * The nearest ancestor of `target` that looks like a checkout, or null.
+ *
+ * This used to be `isInside(resolved, process.cwd())`, which was wrong in a way that only
+ * showed up in a packaged build: an app launched from Finder has a working directory of `/`,
+ * every absolute path is inside `/`, and so the guard rejected the correct userData path and
+ * took the whole app down before it could open a window. A check that rejects everything is
+ * not a safety check.
+ *
+ * Looking for the markers themselves says what was actually meant, and does not care how the
+ * process was started. The walk stops at the home directory: `~/Library/Application Support/…`
+ * is the *intended* location, and someone with a stray `~/package.json` must not have their
+ * whole store condemned by it.
+ */
+function enclosingSourceTree(target: string): string | null {
+  const stopAt = path.resolve(os.homedir());
+  let dir = path.dirname(path.resolve(target));
+
+  while (dir !== stopAt && dir !== path.dirname(dir)) {
+    for (const marker of ['.git', 'package.json']) {
+      if (fs.existsSync(path.join(dir, marker))) return dir;
+    }
+    dir = path.dirname(dir);
+  }
+  return null;
 }
 
 function isInside(child: string, parent: string): boolean {

@@ -213,6 +213,22 @@ describe('database location safety', () => {
     );
   });
 
+  test('accepts it no matter what the working directory is', () => {
+    // Regression: the guard used to reject anything inside `process.cwd()`. An app launched
+    // from Finder has a working directory of `/`, so every absolute path qualified and the
+    // packaged build died at start-up with no window. Only a source tree may disqualify a path.
+    const home = process.env.HOME ?? '/Users/nobody';
+    const original = process.cwd();
+    try {
+      process.chdir('/');
+      assert.doesNotThrow(() =>
+        assertSafeDatabaseLocation(`${home}/Library/Application Support/AIMgnal/store/messages.db`)
+      );
+    } finally {
+      process.chdir(original);
+    }
+  });
+
   test('refuses a relative path', () => {
     assert.throws(
       () => assertSafeDatabaseLocation('store/messages.db'),

@@ -13,9 +13,15 @@ Phases 1–5 are written, tested and green, the app runs against the live accoun
 conversations work.
 
 `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`, `npm test`
-(97 tests) all pass. The first launch found four bugs no test could have (see below); later
-passes added Signal group conversations and made the buddy list conversation-driven. Live: 73
-contacts and 43 groups load, the account's username resolves, and the daemon stays up.
+(98 tests) all pass, `npm run package` produces `release/AIMgnal-0.1.0-arm64.dmg` (117 MB), and
+that packaged build has been launched from Finder: buddy list, live group chat rooms with named
+members, and the daemon resolved from Homebrew. The first launch found four bugs no test could
+have, and the first *packaged* launch found three more (both lists below).
+
+**The build is unsigned and unnotarized.** It runs here; on any other Mac Gatekeeper will refuse
+it ("damaged / cannot be opened"). The exact block to enable signing is written as a comment in
+`electron-builder.yml`. It also needs signal-cli installed — the app spawns it, never bundles it
+(SPEC §10).
 
 ---
 
@@ -129,6 +135,25 @@ authoritative.
 Verified correct with no change needed: delete-for-everyone, reactions add/remove, quotes,
 group routing, disappearing timers, `envelope.timestamp === sentMessage.timestamp`.
 
+## Bugs the first *packaged* build found
+
+None of these could happen in `npm run dev`, and all three were invisible: the app appeared in
+the Dock, alive, with no window and no explanation.
+
+1. **The database location guard rejected the correct location.** It refused any path inside
+   `process.cwd()`, meaning "not in the source tree". An app launched from Finder has a working
+   directory of `/`, so every absolute path qualified and the guard took the app down at
+   start-up. It now looks for `.git` / `package.json` in the ancestors of the database path,
+   stopping at `$HOME`, which is what it always meant.
+2. **signal-cli was not found.** A Finder-launched app inherits `/usr/bin:/bin:/usr/sbin:/sbin`,
+   which has no Homebrew in it, so `spawn('signal-cli')` failed with ENOENT. `resolveSignalCli()`
+   now checks absolute locations, honours `AIMGNAL_SIGNAL_CLI`, and keeps the bare name as a
+   fallback.
+3. **Nothing listened to the daemon's output.** `SignalDaemon` emitted every line of signal-cli's
+   stdout and stderr as a `log` event with no listener anywhere, so the one thing that could
+   explain a failure was computed and discarded. The service now logs it, and a throw during
+   start-up raises a dialog instead of leaving a windowless process.
+
 ## Bugs the first launch found
 
 Four more, all at boundaries the tests stub out. Fixed in `d574a62`; the detail is in that
@@ -168,6 +193,10 @@ Decisions, not typing:
   "X has entered the room" line.
 - **Group admin actions are absent** — no create, rename, add/remove member, or leave. The store
   records `isAdmin`; nothing acts on it.
+- **A window opened by an incoming message can render empty.** Seen once in the packaged build:
+  `openOnIncoming` opened a chat room whose log then read "No messages yet", even though an
+  arriving message is what opened it. The member list and title were correct, so this is the
+  message read path, not the group. Not diagnosed.
 - **Formatting toolbar is decorative** — `im:send` takes a plain body.
 - **`group:reorder` semantics** — the renderer sends a desired 0-based index and expects main to
   re-index siblings. Undefined in the contract.

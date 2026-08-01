@@ -92,6 +92,18 @@ export class AppService {
       this.setState(state);
     });
 
+    // The daemon's own stdout/stderr, and our notes about it. Nothing consumed this before, so
+    // the single most useful signal when the daemon misbehaves — its own account of why it
+    // exited — was being computed and then dropped on the floor. A packaged build that fails to
+    // start signal-cli is indistinguishable from one that starts it fine without this.
+    this.daemon.on('log', (line: string) => {
+      console.error(`[signal-cli] ${line}`);
+    });
+
+    this.daemon.on('exited', (code: number | null, signal: string | null) => {
+      console.error(`[signal-cli] daemon exited (code=${String(code)} signal=${String(signal)})`);
+    });
+
     this.daemon.on('started', () => {
       // The socket does not exist the instant the process spawns; RpcClient's reconnect
       // backoff absorbs the gap rather than us guessing at a sleep.

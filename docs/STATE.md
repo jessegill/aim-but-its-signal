@@ -1,7 +1,8 @@
 # Project state
 
-Working notes for picking this up cold. Complements `SPEC.md` (what to build) and
-`docs/signal-cli-rpc.md` (what the daemon actually does).
+Working notes for picking this up cold. Complements `SPEC.md` (what to build),
+`docs/signal-cli-rpc.md` (what the daemon actually does), and `docs/ROADMAP.md` (what is next).
+This file is the present tense; the roadmap is the future one.
 
 Last updated: 2026-07-31.
 

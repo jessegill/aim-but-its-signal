@@ -47,8 +47,12 @@
  *   | edit             | `applyEdit(senderId, targetSentAt, …)`   | (sender, sentAt) |
  *   | reaction         | `applyReaction({targetSenderId, …})`     | (sender, sentAt) |
  *   | remote delete    | `deleteForEveryone(senderId, sentAt)`    | (sender, sentAt) |
- *   | receipt          | `setReceiptByTimestamp(senderId, sentAt)`| (sender, sentAt) |
+ *   | receipt          | `setReceiptByTimestamp(senderId, sentAt)`| (author, sentAt) |
  *   | quote            | `PersistMessageInput.quote` (QuoteTarget)| (author, sentAt) |
+ *
+ * "author" is load-bearing in the receipt row: a delivery receipt is sent *to* us *by* the
+ * recipient, but the message it refers to is one we wrote, so the key is the local account —
+ * not the ACI on the envelope that carried the receipt.
  *
  * ---------------------------------------------------------------------------------------
  * THE EXPIRY CLOCK IS OURS
@@ -117,6 +121,24 @@ export interface ExpiredRef {
   id: string;
   conversationId: ConversationId;
 }
+
+/**
+ * Delivery states ordered weakest to strongest. A receipt may only ever move a message
+ * forward.
+ *
+ * This matters most in a group, where every member acknowledges separately: without an
+ * ordering, one member's late `delivered` would drag a message that another member had
+ * already `read` back down, and the state would flap for as long as receipts kept arriving.
+ * `failed` ranks with `sending` so that a receipt for a send we gave up on can still correct
+ * the record — the message evidently did arrive.
+ */
+const RECEIPT_RANK: Record<ReceiptState, number> = {
+  sending: 0,
+  failed: 0,
+  sent: 1,
+  delivered: 2,
+  read: 3,
+};
 
 export type OutboundState = 'queued' | 'sending' | 'sent' | 'failed';
 
@@ -201,7 +223,15 @@ export interface MessageStore {
    */
   setReceipt(messageId: string, state: ReceiptState): void;
   /** The path for daemon receipts: they reference their target by (author, sentAt). */
-  setReceiptByTimestamp(senderId: BuddyId, sentAt: number, state: ReceiptState): void;
+  /**
+   * Advances a message's delivery state, addressed by its natural key.
+   *
+   * `senderId` is the message's **author** — for a receipt acknowledging something we sent,
+   * that is the local account, not whoever is doing the acknowledging. Returns the message that
+   * changed so the caller can route a push to the right window, or null when there is no such
+   * message or the state would not move forward.
+   */
+  setReceiptByTimestamp(senderId: BuddyId, sentAt: number, state: ReceiptState): ExpiredRef | null;
   /** Starts a disappearing-message timer relative to `from` (default now). */
   startExpiryTimer(messageId: string, seconds: number, from?: number): number | null;
   /** Applies a timer to every message in a conversation that has none yet (e.g. on read). */
@@ -813,9 +843,14 @@ export function createMessageStore(
     },
 
     setReceiptByTimestamp(senderId, sentAt, state) {
-      raw
-        .prepare(`UPDATE messages SET receipt = ? WHERE sender_id = ? AND sent_at = ?`)
-        .run(state, senderId, sentAt);
+      const row = selectByNaturalKey.get(senderId, sentAt) as MessageRow | undefined;
+      if (!row) return null;
+
+      const current = (row.receipt as ReceiptState | null) ?? 'sending';
+      if (RECEIPT_RANK[state] <= RECEIPT_RANK[current]) return null;
+
+      raw.prepare(`UPDATE messages SET receipt = ? WHERE id = ?`).run(state, row.id);
+      return { id: row.id, conversationId: row.conversation_id };
     },
 
     startExpiryTimer(messageId, seconds, from) {

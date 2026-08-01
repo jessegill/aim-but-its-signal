@@ -283,26 +283,33 @@ export function App({ conversationId }: AppProps): JSX.Element {
         try {
           const { messageId } = await invoke('im:send', conversationId, body);
           setError(null);
-          // Optimistic row so the log never looks like it swallowed the message. Main echoes
-          // the authoritative copy on im:message under the same id, which replaces this one.
+          // A placeholder for the case where main's own copy has not landed yet.
+          //
+          // It must never overwrite one that has. `im:send` only resolves *after* main has
+          // persisted the message and pushed it on `im:message`, and Electron delivers that
+          // push before the invoke reply — so by the time this runs the authoritative row,
+          // already marked 'sent', is normally in the log. Merging unconditionally replaced it
+          // with this one and pinned the message at "sending…" forever.
           setMessages((prev) =>
-            mergeMessage(prev, {
-              id: messageId,
-              conversationId,
-              senderId: '',
-              senderName: ownName(self),
-              outgoing: true,
-              body,
-              sentAt: Date.now(),
-              receivedAt: null,
-              expiresAt: null,
-              editedAt: null,
-              quote: null,
-              reactions: [],
-              attachments: [],
-              kind: 'text',
-              receipt: 'sending',
-            })
+            prev.some((m) => m.id === messageId)
+              ? prev
+              : mergeMessage(prev, {
+                  id: messageId,
+                  conversationId,
+                  senderId: '',
+                  senderName: ownName(self),
+                  outgoing: true,
+                  body,
+                  sentAt: Date.now(),
+                  receivedAt: null,
+                  expiresAt: null,
+                  editedAt: null,
+                  quote: null,
+                  reactions: [],
+                  attachments: [],
+                  kind: 'text',
+                  receipt: 'sending',
+                })
           );
         } catch (err) {
           setError(describeFailure('im:send', err));

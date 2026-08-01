@@ -392,13 +392,31 @@ export class AppService {
         return;
       }
 
-      case 'receipt':
+      case 'receipt': {
+        // A receipt acknowledges a message *we* sent, so the message it refers to is keyed by
+        // (selfId, sentAt). This used to resolve against `event.senderId` — the ACI of whoever
+        // was doing the acknowledging — which matches no row we ever wrote, so the UPDATE hit
+        // nothing and the pushed id was for a message that does not exist. Nothing outgoing
+        // ever advanced past "sending".
+        const selfId = this.selfId;
+        if (selfId === null) return;
+
         for (const sentAt of event.targetSentAts) {
-          this.store.messages.setReceiptByTimestamp(event.senderId, sentAt, event.state);
-          const id = deriveMessageId(event.senderId, sentAt);
-          this.windows.broadcast(PUSH.receipt, event.senderId, id, event.state);
+          const ref = this.store.messages.setReceiptByTimestamp(selfId, sentAt, event.state);
+          // Null means no such message, or a state that would move backwards — in a group every
+          // member acknowledges separately, so later receipts for an already-read message are
+          // the normal case rather than an error.
+          if (ref === null) continue;
+          this.windows.sendToIm(
+            ref.conversationId,
+            PUSH.receipt,
+            ref.conversationId,
+            ref.id,
+            event.state
+          );
         }
         return;
+      }
 
       case 'typing':
         // Typing is not presence (SPEC.md §7) — it is a per-message protocol event, so it is

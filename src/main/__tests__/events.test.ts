@@ -162,6 +162,67 @@ test('view-once media surfaces as a message even though no media is delivered', 
 });
 
 // ---------------------------------------------------------------------------
+// Delete for everyone
+// ---------------------------------------------------------------------------
+
+test('a remote delete from another device targets the tuple, in the right conversation', () => {
+  /*
+   * Captured live from a group chat. Deleting your own message on the phone arrives as a sync
+   * sentMessage carrying `remoteDelete`, with every destination field null and the conversation
+   * in groupInfo. The author of the *deleted* message is the local user, which is what the
+   * store needs to find the original by (author, sentAt) and purge it (SPEC.md §8).
+   */
+  const events = parseReceive(
+    sync({
+      destination: null,
+      destinationNumber: null,
+      destinationUuid: null,
+      timestamp: 1_785_000_000_030,
+      message: null,
+      expiresInSeconds: 0,
+      isExpirationUpdate: false,
+      viewOnce: false,
+      remoteDelete: { timestamp: 1_785_000_000_025 },
+      groupInfo: { groupId: GROUP, groupName: 'Friends', revision: 3, type: 'DELIVER' },
+    }),
+    { selfId: SELF }
+  );
+
+  assert.equal(events.length, 1);
+  const event = events[0];
+  assert.equal(event.type, 'remote-delete');
+  assert.equal(event.conversationId, GROUP);
+  assert.equal(event.senderId, SELF);
+  assert.equal(event.targetSentAt, 1_785_000_000_025);
+});
+
+test('a remote delete from someone else is attributed to them, not to us', () => {
+  const events = parseReceive(
+    receive({
+      source: '+15550001',
+      sourceUuid: PEER,
+      sourceName: 'Alice',
+      sourceDevice: 1,
+      timestamp: 1_785_000_000_031,
+      dataMessage: {
+        timestamp: 1_785_000_000_031,
+        message: null,
+        expiresInSeconds: 0,
+        viewOnce: false,
+        remoteDelete: { timestamp: 1_785_000_000_026 },
+      },
+    }),
+    { selfId: SELF }
+  );
+
+  assert.equal(events.length, 1);
+  const event = events[0];
+  assert.equal(event.type, 'remote-delete');
+  assert.equal(event.senderId, PEER);
+  assert.equal(event.conversationId, PEER);
+});
+
+// ---------------------------------------------------------------------------
 // Regression: attachments, voice notes, stickers
 // ---------------------------------------------------------------------------
 

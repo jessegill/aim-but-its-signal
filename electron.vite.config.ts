@@ -38,7 +38,7 @@ function forbidNodeInRenderer(): Plugin {
   ])
 
   return {
-    name: 'retro-im:forbid-node-in-renderer',
+    name: 'aimgnal:forbid-node-in-renderer',
     enforce: 'pre',
     resolveId(source, importer) {
       if (forbidden.has(source) || source.startsWith('node:')) {

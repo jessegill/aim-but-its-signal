@@ -4,8 +4,8 @@
 #
 # Kept in YAML rather than package.json so the decisions below can carry their reasoning.
 
-appId: dev.retroim.app
-productName: Retro IM
+appId: dev.aimgnal.app
+productName: AIMgnal
 copyright: Copyright © 2026
 
 directories:
@@ -53,7 +53,7 @@ mac:
   extendInfo:
     LSMinimumSystemVersion: '15.0'
 
-  icon: resources/icons/RetroIM.icns
+  icon: resources/icons/AIMgnal.icns
 
   # ---------------------------------------------------------------------------
   # CODE SIGNING HOOK — NOT CONFIGURED YET

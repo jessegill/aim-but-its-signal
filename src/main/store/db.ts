@@ -181,7 +181,7 @@ interface ResolvedDriver {
  * file. Honoured only when Electron is absent — a packaged app can never be redirected.
  */
 function driverPathOverride(): string | null {
-  const override = process.env.RETRO_IM_SQLITE_DRIVER;
+  const override = process.env.AIMGNAL_SQLITE_DRIVER;
   if (!override) return null;
   let insideElectron = false;
   try {

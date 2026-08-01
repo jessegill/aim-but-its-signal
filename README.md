@@ -1,13 +1,15 @@
-# AIM but it's Signal
+# AIMgnal
+
+*AIM but it's Signal.*
 
 A desktop instant messenger with a 2003-era AIM 5.1 look and feel that runs on the real Signal
 network as a linked secondary device. Every conversation opens in its own OS window.
 
 > **Not affiliated with, endorsed by, or connected to** Signal Messenger LLC, the Signal
-> Technology Foundation, AOL, Yahoo, or any successor rights holder. "AIM" and "Signal" are
-> used here descriptively to say what this project is. All trademarks belong to their
-> respective owners. No AOL or AIM artwork is used or distributed — all retro assets are
-> original look-alikes.
+> Technology Foundation, AOL, Yahoo, or any successor rights holder. The name is a portmanteau
+> used descriptively to say what this project is. All trademarks belong to their respective
+> owners. No AOL or AIM artwork is used or distributed — all retro assets are original
+> look-alikes.
 
 ## What it is
 

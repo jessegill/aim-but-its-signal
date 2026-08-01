@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate the three UI sounds for the retro IM client.
+Generate the three UI sounds for the AIMgnal client.
 
 ALL AUDIO HERE IS SYNTHESIZED FROM SCRATCH with the Python standard library.
 Nothing is sampled, extracted, downloaded, or derived from AOL/AIM (or any

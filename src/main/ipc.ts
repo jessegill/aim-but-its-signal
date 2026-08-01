@@ -116,7 +116,7 @@ export function registerIpc(service: AppService): void {
   ipcMain.handle('connection:startLink', async () => {
     // Also the relink path (SPEC.md §8). The device name is what appears in the user's Linked
     // Devices list on their phone.
-    return await service.startLink("AIM but it's Signal")
+    return await service.startLink('AIMgnal')
   })
 
   ipcMain.handle('self:get', () => service.selfAccount())

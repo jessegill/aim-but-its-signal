@@ -25,7 +25,7 @@ export interface Fixture {
   cleanup(): void;
 }
 
-export function makeTempDir(prefix = 'retro-im-store-'): string {
+export function makeTempDir(prefix = 'aimgnal-store-'): string {
   // realpath so /var/... resolves to /private/var/... — the location guard compares resolved
   // absolute paths, and mismatched symlinks make failures confusing.
   return fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), prefix));

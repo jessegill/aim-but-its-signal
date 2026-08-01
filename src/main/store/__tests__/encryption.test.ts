@@ -32,7 +32,7 @@ import { makeTempDir, fakeSafeStorage } from './helpers.ts';
 
 const HAS_ENCRYPTED_DRIVER = (() => {
   try {
-    const dir = makeTempDir('retro-im-probe-');
+    const dir = makeTempDir('aimgnal-probe-');
     const db = openDatabase({
       file: path.join(dir, 'probe.db'),
       keyHex: randomBytes(32).toString('hex'),
@@ -209,7 +209,7 @@ describe('database location safety', () => {
   test('accepts the Application Support location Electron actually uses', () => {
     const home = process.env.HOME ?? '/Users/nobody';
     assert.doesNotThrow(() =>
-      assertSafeDatabaseLocation(`${home}/Library/Application Support/RetroIM/store/messages.db`)
+      assertSafeDatabaseLocation(`${home}/Library/Application Support/AIMgnal/store/messages.db`)
     );
   });
 

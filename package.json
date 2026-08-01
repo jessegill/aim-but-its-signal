@@ -1,10 +1,10 @@
 {
-  "name": "retro-im",
+  "name": "aimgnal",
   "version": "0.1.0",
   "private": true,
   "description": "A 2003-era instant messenger shell riding the Signal network as a linked device.",
   "license": "MIT",
-  "author": "Retro IM contributors",
+  "author": "AIMgnal contributors",
   "main": "./out/main/index.js",
   "engines": {
     "node": ">=22.12.0"

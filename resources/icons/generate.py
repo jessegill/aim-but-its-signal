@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate the app icon and UI glyphs for the retro IM client.
+Generate the app icon and UI glyphs for the AIMgnal client.
 
 ALL ARTWORK HERE IS ORIGINAL, drawn from scratch as code with the Python
 standard library. Nothing is traced, extracted, downloaded, or derived from
@@ -26,8 +26,8 @@ The tile is inset 2 units (6.25%) inside the canvas for the same reason.
 Outputs (written next to this script):
     app.svg, app-16.svg            vector source for the app icon
     app-{16,32,64,128,256,512}.png raster exports
-    RetroIM.iconset/               full macOS iconset incl. @2x retina
-    RetroIM.icns                   built with iconutil, for Electron packaging
+    AIMgnal.iconset/               full macOS iconset incl. @2x retina
+    AIMgnal.icns                   built with iconutil, for Electron packaging
     glyph-*.svg                    UI glyphs (SVG is the shipping format)
     glyph-*-{16,32,64}.png         convenience rasters
 
@@ -49,8 +49,8 @@ import sys
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ICONSET = os.path.join(HERE, "RetroIM.iconset")
-ICNS = os.path.join(HERE, "RetroIM.icns")
+ICONSET = os.path.join(HERE, "AIMgnal.iconset")
+ICNS = os.path.join(HERE, "AIMgnal.icns")
 
 # --------------------------------------------------------------------------
 # PALETTE -- original. Saturated teal + cream + warm amber.
@@ -434,9 +434,9 @@ def build():
     masters = {"32": app32, "16": app16}
     made = []
 
-    write_svg(os.path.join(HERE, "app.svg"), app32, "Retro IM app icon")
+    write_svg(os.path.join(HERE, "app.svg"), app32, "AIMgnal app icon")
     write_svg(os.path.join(HERE, "app-16.svg"), app16,
-              "Retro IM app icon (16px variant)")
+              "AIMgnal app icon (16px variant)")
     made += ["app.svg", "app-16.svg"]
 
     # standalone PNG exports; 16px uses the simplified master
@@ -453,12 +453,12 @@ def build():
     os.makedirs(ICONSET)
     for name, _size, master, scale in ICONSET_MEMBERS:
         write_png(os.path.join(ICONSET, name), masters[master], scale)
-    made.append("RetroIM.iconset/ (%d files)" % len(ICONSET_MEMBERS))
+    made.append("AIMgnal.iconset/ (%d files)" % len(ICONSET_MEMBERS))
 
     if shutil.which("iconutil"):
         subprocess.run(["iconutil", "-c", "icns", ICONSET, "-o", ICNS],
                        check=True)
-        made.append("RetroIM.icns")
+        made.append("AIMgnal.icns")
     else:
         print("warning: iconutil not found; skipped .icns", file=sys.stderr)
 

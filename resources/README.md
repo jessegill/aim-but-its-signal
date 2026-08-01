@@ -122,8 +122,8 @@ two-balloon composition turns to mud, so it drops to a single balloon with three
 | `app.svg` | Vector source, 32-unit grid |
 | `app-16.svg` | Vector source, simplified 16-unit variant |
 | `app-{16,32,64,128,256,512}.png` | Raster exports; the 16 px uses the simplified master |
-| `RetroIM.iconset/` | Full macOS iconset, 10 members |
-| `RetroIM.icns` | **What Electron packaging consumes on macOS** |
+| `AIMgnal.iconset/` | Full macOS iconset, 10 members |
+| `AIMgnal.icns` | **What Electron packaging consumes on macOS** |
 
 The `.icns` contains all ten standard members including every `@2x` retina variant —
 16, 16@2x, 32, 32@2x, 128, 128@2x, 256, 256@2x, 512, 512@2x (up to 1024×1024 pixels). A

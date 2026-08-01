@@ -136,7 +136,12 @@ export class RpcClient extends EventEmitter {
     socket.on('error', (error: Error) => {
       // A connection-refused during reconnect is expected while the daemon restarts; surface it
       // but do not treat it as fatal.
-      this.emit('error', error);
+      //
+      // The listener check is load-bearing: EventEmitter rethrows an 'error' emission that has
+      // no listener as an uncaught exception. Emitting unguarded here turns the ordinary ENOENT
+      // from the ~1s gap between spawning the daemon and it binding the socket into a crash
+      // that takes the app down before any window opens.
+      if (this.listenerCount('error') > 0) this.emit('error', error);
       onFirstFailure?.(error);
     });
 

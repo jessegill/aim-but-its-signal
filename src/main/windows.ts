@@ -42,6 +42,10 @@ const GEOMETRY_SAVE_DEBOUNCE_MS = 400;
 
 const FRAMELESS: BrowserWindowConstructorOptions = {
   frame: false,
+  // macOS rounds the corners of frameless windows by default, which reads as unmistakably modern
+  // and fights the whole premise: the XP title bar is the real chrome here, and XP had hard
+  // corners. This only takes effect on frameless windows, which is all of ours.
+  roundedCorners: false,
   backgroundColor: CHROME_BACKGROUND,
   show: false,
 };
@@ -132,6 +136,8 @@ export class WindowManager {
   private readonly imWindows = new Map<ConversationId, ManagedWindow>();
   private buddyList: BrowserWindow | null = null;
   private signOn: BrowserWindow | null = null;
+  /** Set by `closeAll`, after which no geometry write may touch the store. */
+  private shuttingDown = false;
 
   constructor(private readonly geometry: WindowStore) {}
 
@@ -302,6 +308,10 @@ export class WindowManager {
 
   private trackGeometry(window: BrowserWindow, key: string): void {
     const persist = (): void => {
+      // Quit tears the store down before Electron has finished destroying windows, and every
+      // window emits `close` on the way out. Without this guard the last one writes geometry
+      // into a closed database and takes the app down with an uncaught exception.
+      if (this.shuttingDown) return;
       if (window.isDestroyed() || window.isMinimized() || window.isMaximized()) return;
       const bounds = window.getBounds();
       this.geometry.save(key, bounds);
@@ -338,8 +348,15 @@ export class WindowManager {
     if (oldest !== null) this.closeIm(oldest.id);
   }
 
-  /** Closes everything. Used on quit. */
+  /**
+   * Closes everything. Used on quit.
+   *
+   * Sets `shuttingDown` first so that no `close` handler tries to persist geometry on the way
+   * out — the store is closed immediately after this returns.
+   */
   closeAll(): void {
+    this.shuttingDown = true;
+
     for (const timer of singletonTimers.values()) clearTimeout(timer);
     singletonTimers.clear();
     for (const managed of this.imWindows.values()) {
@@ -347,6 +364,14 @@ export class WindowManager {
       if (!managed.window.isDestroyed()) managed.window.destroy();
     }
     this.imWindows.clear();
+
+    // The singletons are tracked separately from imWindows and were previously left for Electron
+    // to reap, which is what surfaced the write-after-close.
+    for (const singleton of [this.buddyList, this.signOn]) {
+      if (singleton !== null && !singleton.isDestroyed()) singleton.destroy();
+    }
+    this.buddyList = null;
+    this.signOn = null;
   }
 }
 

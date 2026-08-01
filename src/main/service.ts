@@ -98,6 +98,14 @@ export class AppService {
       void this.onRpcConnected();
     });
 
+    this.rpc.on('error', (error: Error) => {
+      // Connection errors are normal: the socket does not exist yet while the daemon boots, and
+      // goes away whenever it restarts. The reconnect loop is the recovery path, so there is
+      // nothing to do here — but the listener must exist, or EventEmitter turns each one into an
+      // uncaught exception.
+      this.daemon.emit('log', `rpc: ${error.message}`);
+    });
+
     this.rpc.on('disconnected', () => {
       // The daemon may still be alive; the connection is what we lost. Under
       // --receive-mode on-connection nothing is pulled from the server while we are
@@ -150,7 +158,6 @@ export class AppService {
 
       const number =
         record === null ? null : typeof record.number === 'string' ? record.number : null;
-      const aci = record === null ? null : typeof record.uuid === 'string' ? record.uuid : null;
 
       if (number === null) {
         // The daemon is up but no account is linked. This is the first-run path.
@@ -160,11 +167,47 @@ export class AppService {
       }
 
       this.account = number;
-      this.selfId = aci;
       this.setState('linked');
+      // Order matters: the ACI has to be known before any send, and `listAccounts` does not
+      // carry it (see resolveSelfId).
+      await this.resolveSelfId();
       await this.syncRoster();
     } catch {
       this.setState('daemon-down');
+    }
+  }
+
+  /**
+   * Resolves the account's own ACI.
+   *
+   * `listAccounts` returns **only** `{"number":"+1…"}` — verified live against 0.14.6. There is
+   * no `uuid` field, so the ACI has to be found elsewhere or every send fails with "self identity
+   * unknown" and every incoming message is misattributed as not-outgoing.
+   *
+   * `listContacts` contains a self entry keyed by the account number; `listIdentities` also
+   * carries one and is the fallback, because a null ACI breaks the app outright.
+   */
+  private async resolveSelfId(): Promise<void> {
+    const account = this.account;
+    if (account === null) return;
+
+    for (const method of ['listContacts', 'listIdentities'] as const) {
+      try {
+        const result = await this.rpc.call(method, { account });
+        if (!Array.isArray(result)) continue;
+        for (const raw of result) {
+          if (typeof raw !== 'object' || raw === null) continue;
+          const entry = raw as Record<string, unknown>;
+          if (entry.number !== account) continue;
+          const uuid = entry.uuid;
+          if (typeof uuid === 'string' && uuid !== '') {
+            this.selfId = uuid;
+            return;
+          }
+        }
+      } catch {
+        // Try the next source rather than leaving the app unable to send.
+      }
     }
   }
 
@@ -459,6 +502,11 @@ export class AppService {
     attachments?: string[]
   ): Promise<string> {
     if (this.account === null) throw new Error('not linked');
+    // Checked *before* the RPC call, not after. Validating anything post-send means the message
+    // has already left for a real contact by the time we refuse it — the user sees a failure,
+    // retries, and sends twice.
+    const selfId = this.selfId;
+    if (selfId === null) throw new Error('self identity unknown');
 
     const buddy = this.store.roster.getBuddy(conversationId);
     const expiresAt = computeExpiresAt(buddy?.messageExpirationTime ?? 0, Date.now());
@@ -486,9 +534,6 @@ export class AppService {
       const record =
         typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : null;
       const timestamp = asNumber(record?.timestamp) ?? Date.now();
-
-      const selfId = this.selfId;
-      if (selfId === null) throw new Error('self identity unknown');
 
       const message = this.store.messages.markOutboundSent(row.id, timestamp, selfId);
       this.pushMessage(conversationId, message);

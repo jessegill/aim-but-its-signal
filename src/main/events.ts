@@ -404,11 +404,25 @@ function parseAttachments(dataMessage: Rec): RawAttachment[] {
         contentType,
         filename,
         size: num(record.size),
+        /*
+         * The envelope carries NO path. Verified against real traffic: an attachment's keys are
+         * contentType, filename, id, size, width, height, caption, uploadTimestamp — there is no
+         * `file`. The daemon has already written the bytes to its own attachments directory
+         * named by `id`, and the caller resolves that (see resolveAttachmentPath in service.ts).
+         * Reading a nonexistent `file` key here left path permanently null, which meant the
+         * daemon's copy was never shredded — a disappearing-message attachment would have
+         * outlived its timer on disk.
+         */
         path: str(record.file),
-        // The JSON layer drops any explicit voice-note flag (docs/signal-cli-rpc.md §7), so
-        // this heuristic — audio with no filename — is the only signal available. It is
-        // flagged as unverified in the doc and should be re-checked against a real voice note.
-        isVoiceNote: contentType.startsWith('audio/') && filename === null,
+        /*
+         * The JSON layer drops any explicit voice-note flag (docs/signal-cli-rpc.md §7), so a
+         * heuristic is the only option. The previous guess — audio with a null filename — was
+         * exactly backwards: real traffic shows a voice note carries a generated filename
+         * (signal-<date>.m4a) while a photo has filename null. Content type is the only
+         * dependable signal, so an attached audio *file* is also treated as a voice note. Both
+         * render as audio, so the failure is cosmetic.
+         */
+        isVoiceNote: contentType.startsWith('audio/'),
       },
     ];
   });

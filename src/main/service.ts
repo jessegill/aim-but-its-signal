@@ -21,7 +21,10 @@ import type {
   Roster,
   SelfAccount,
 } from '@shared/types';
-import { SignalDaemon, defaultSocketPath } from './daemon.ts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { SignalDaemon, defaultSocketPath, signalCliAttachmentsDir } from './daemon.ts';
 import { RpcClient } from './rpc.ts';
 import { parseReceive } from './events.ts';
 import type { DomainEvent, IncomingMessageEvent, RawAttachment } from './events.ts';
@@ -594,13 +597,31 @@ function isGroupConversation(conversationId: ConversationId): boolean {
   return !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId);
 }
 
+/**
+ * Resolves where the daemon already put an attachment's bytes.
+ *
+ * The envelope has no path field; the daemon writes the file into its own attachments
+ * directory named by the envelope `id` before we ever see the message. Verified against real
+ * traffic for both an image and a voice note.
+ *
+ * Getting this wrong is a security bug, not a rendering one: with a null path the store cannot
+ * shred the daemon's copy, so a disappearing-message attachment outlives its timer on disk,
+ * outside every sweep (SPEC.md §8).
+ */
+function resolveAttachmentPath(raw: RawAttachment): string | null {
+  if (raw.path !== null) return raw.path;
+  if (raw.id === '') return null;
+  const candidate = join(signalCliAttachmentsDir(), raw.id);
+  return existsSync(candidate) ? candidate : null;
+}
+
 function toAttachment(raw: RawAttachment, viewOnce: boolean): Attachment {
   return {
     id: raw.id,
     contentType: raw.contentType,
     filename: raw.filename,
     size: raw.size,
-    path: raw.path,
+    path: resolveAttachmentPath(raw),
     viewOnce,
     isVoiceNote: raw.isVoiceNote,
   };

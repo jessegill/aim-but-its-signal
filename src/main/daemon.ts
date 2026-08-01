@@ -13,7 +13,7 @@ import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { chmodSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 
 import type { ConnectionState } from '@shared/types';
 
@@ -33,6 +33,22 @@ export function defaultSocketPath(): string {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
   return join(dir, 'signal.sock');
+}
+
+/**
+ * Where the daemon writes downloaded attachments, named by their envelope `id`.
+ *
+ * Verified against real traffic: the envelope carries no path, and the file already exists here
+ * by the time we see the message. We must copy what we want and shred the original — leaving it
+ * would put message content outside the reach of every expiry sweep and deletion (SPEC.md §8).
+ */
+export function signalCliAttachmentsDir(): string {
+  const xdgDataHome = process.env.XDG_DATA_HOME;
+  const base =
+    xdgDataHome !== undefined && xdgDataHome !== ''
+      ? xdgDataHome
+      : join(homedir(), '.local', 'share');
+  return join(base, 'signal-cli', 'attachments');
 }
 
 export interface DaemonOptions {

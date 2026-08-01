@@ -162,6 +162,129 @@ test('view-once media surfaces as a message even though no media is delivered', 
 });
 
 // ---------------------------------------------------------------------------
+// Regression: attachments, voice notes, stickers
+// ---------------------------------------------------------------------------
+
+test('a voice note is detected by content type, not by a null filename', () => {
+  /*
+   * Found by real traffic. The original heuristic was "audio with a null filename", which is
+   * exactly backwards: a real voice note carries a generated filename
+   * (signal-2026-07-31-22-25-15-159.m4a) while a photo has filename null. signal-cli's JSON
+   * layer drops the explicit voice-note flag entirely, so content type is all we get.
+   */
+  const events = parseReceive(
+    sync({
+      destinationUuid: SELF,
+      timestamp: 1_785_000_000_020,
+      message: null,
+      expiresInSeconds: 0,
+      isExpirationUpdate: false,
+      viewOnce: false,
+      attachments: [
+        {
+          contentType: 'audio/aac',
+          filename: 'signal-2026-07-31-22-25-15-159.m4a',
+          id: 'Jy6XosgvuwWvay6ctkGV.m4a',
+          size: 71_449,
+          width: null,
+          height: null,
+          caption: null,
+          uploadTimestamp: 1_785_000_000_000,
+        },
+      ],
+    }),
+    { selfId: SELF }
+  );
+
+  assert.equal(events.length, 1);
+  const event = events[0];
+  assert.equal(event.type, 'message');
+  assert.equal(event.kind, 'voice');
+  assert.equal(event.attachments[0]?.isVoiceNote, true);
+});
+
+test('a photo has a null filename and is not mistaken for a voice note', () => {
+  const events = parseReceive(
+    sync({
+      destinationUuid: SELF,
+      timestamp: 1_785_000_000_021,
+      message: null,
+      expiresInSeconds: 0,
+      isExpirationUpdate: false,
+      viewOnce: false,
+      attachments: [
+        {
+          contentType: 'image/jpeg',
+          filename: null,
+          id: 'tFoii-7p8WoURJNFSzs7.jpg',
+          size: 148_888,
+          width: 1024,
+          height: 768,
+          caption: null,
+          uploadTimestamp: 1_785_000_000_000,
+        },
+      ],
+    }),
+    { selfId: SELF }
+  );
+
+  assert.equal(events[0]?.type, 'message');
+  assert.equal((events[0] as { kind: string }).kind, 'attachment');
+});
+
+test('an attachment carries its id, which is the daemon filename on disk', () => {
+  // The envelope has NO path field. The id is the filename in the daemon's attachments
+  // directory, and resolving it is what lets the store shred the original (SPEC.md §8).
+  const events = parseReceive(
+    sync({
+      destinationUuid: SELF,
+      timestamp: 1_785_000_000_022,
+      message: null,
+      expiresInSeconds: 0,
+      isExpirationUpdate: false,
+      viewOnce: false,
+      attachments: [
+        {
+          contentType: 'image/jpeg',
+          filename: null,
+          id: 'abc123.jpg',
+          size: 10,
+          uploadTimestamp: 1,
+        },
+      ],
+    }),
+    { selfId: SELF }
+  );
+
+  const attachment = (events[0] as { attachments: { id: string; path: string | null }[] })
+    .attachments[0];
+  assert.equal(attachment?.id, 'abc123.jpg');
+  // Parsing does not invent a path; the service resolves it against the daemon directory.
+  assert.equal(attachment?.path, null);
+});
+
+test('a sticker surfaces as a message even with no body and no attachments', () => {
+  // Real shape: sticker carries only packId and stickerId — no image, no path. SPEC.md §8
+  // allows a labelled placeholder, but it must not be dropped.
+  const events = parseReceive(
+    sync({
+      destinationUuid: SELF,
+      timestamp: 1_785_000_000_023,
+      message: null,
+      expiresInSeconds: 0,
+      isExpirationUpdate: false,
+      viewOnce: false,
+      sticker: { packId: 'e4fac2188b853213eb99a1ff30849771', stickerId: 3 },
+    }),
+    { selfId: SELF }
+  );
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.type, 'message');
+  assert.equal((events[0] as { kind: string }).kind, 'sticker');
+});
+
+// ---------------------------------------------------------------------------
 // Plumbing must stay silent
 // ---------------------------------------------------------------------------
 

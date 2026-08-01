@@ -16,7 +16,9 @@ import { app } from 'electron';
 import type {
   Buddy,
   ConnectionState,
+  ConversationEntry,
   ConversationId,
+  ConversationShelf,
   GroupChat,
   Message,
   Roster,
@@ -55,6 +57,8 @@ export class AppService {
   private account: string | null = null;
   /** The account's own ACI — decides `outgoing` and resolves Note to Self. */
   private selfId: string | null = null;
+  /** The account's Signal username, if it has one. Opt-in on Signal, so usually null. */
+  private selfUsername: string | null = null;
 
   private state: ConnectionState = 'daemon-down';
   private rosterSyncing = false;
@@ -183,7 +187,7 @@ export class AppService {
   }
 
   /**
-   * Resolves the account's own ACI.
+   * Resolves the account's own ACI, and its username if it has one.
    *
    * `listAccounts` returns **only** `{"number":"+1…"}` — verified live against 0.14.6. There is
    * no `uuid` field, so the ACI has to be found elsewhere or every send fails with "self identity
@@ -191,10 +195,21 @@ export class AppService {
    *
    * `listContacts` contains a self entry keyed by the account number; `listIdentities` also
    * carries one and is the fallback, because a null ACI breaks the app outright.
+   *
+   * The username is looked for in the same pass but is never required: it is opt-in on Signal,
+   * so its absence is the ordinary case and callers fall back to a neutral label.
    */
   private async resolveSelfId(): Promise<void> {
     const account = this.account;
     if (account === null) return;
+
+    // Checked first because it is the account's own record rather than a contact's view of it.
+    // Harmless if the field is absent — which it was on 0.14.6 the last time it was observed.
+    try {
+      this.selfUsername ??= asString(firstRecord(await this.rpc.call('listAccounts'))?.username);
+    } catch {
+      // Nothing to do; the contact sweep below is the real source.
+    }
 
     for (const method of ['listContacts', 'listIdentities'] as const) {
       try {
@@ -204,6 +219,7 @@ export class AppService {
           if (typeof raw !== 'object' || raw === null) continue;
           const entry = raw as Record<string, unknown>;
           if (entry.number !== account) continue;
+          this.selfUsername ??= asString(entry.username);
           const uuid = entry.uuid;
           if (typeof uuid === 'string' && uuid !== '') {
             this.selfId = uuid;
@@ -566,6 +582,7 @@ export class AppService {
       id: this.selfId,
       number: this.account,
       displayName: this.store.roster.getBuddy(this.selfId)?.displayName ?? this.account ?? 'Me',
+      username: this.selfUsername,
     };
   }
 
@@ -671,6 +688,35 @@ export class AppService {
 
   getRoster(): Roster {
     return this.store.roster.getRoster();
+  }
+
+  /**
+   * Which conversations the buddy list should show, and where each one sits.
+   *
+   * The union of "has messages" and "the user shelved it". Both halves are needed: a pinned
+   * contact you have not spoken to yet must still appear (pinning them is the whole point), and
+   * a conversation you have never sorted must appear once it has traffic.
+   */
+  getConversations(): ConversationEntry[] {
+    const entries = new Map<ConversationId, ConversationEntry>();
+
+    for (const {
+      conversationId,
+      lastMessageAt,
+    } of this.store.messages.listConversationActivity()) {
+      entries.set(conversationId, { id: conversationId, shelf: 'normal', lastMessageAt });
+    }
+    for (const { id, shelf } of this.store.shelves.listShelved()) {
+      const existing = entries.get(id);
+      entries.set(id, { id, shelf, lastMessageAt: existing?.lastMessageAt ?? null });
+    }
+
+    return [...entries.values()];
+  }
+
+  setShelf(conversationId: ConversationId, shelf: ConversationShelf): void {
+    this.store.shelves.set(conversationId, shelf);
+    this.windows.broadcast(PUSH.rosterUpdated);
   }
 
   /** Group conversations, for the buddy list's chat-room section. */

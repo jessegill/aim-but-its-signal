@@ -20,6 +20,8 @@ export const REQUEST_CHANNELS = [
 
   'roster:get',
   'chats:get',
+  'conversations:get',
+  'conversation:setShelf',
   'roster:move',
   'roster:setNick',
 

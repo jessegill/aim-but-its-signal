@@ -24,7 +24,14 @@
 import * as React from 'react';
 import type { JSX } from 'react';
 
-import type { Buddy, ConnectionState, GroupChat, Message, ReceiptState } from '@shared/types';
+import type {
+  Buddy,
+  ConnectionState,
+  GroupChat,
+  Message,
+  ReceiptState,
+  SelfAccount,
+} from '@shared/types';
 
 import {
   Button,
@@ -55,11 +62,13 @@ interface AppProps {
 /**
  * Display name for the local account's own message lines.
  *
- * CONTRACT GAP: no channel exposes the local account's name, so it comes from the query string
- * if main passes one and otherwise falls back to "Me" rather than being guessed.
+ * Deliberately the account's *display* name and not its username: this is the name a chat
+ * room's member list shows for you, and own lines reading differently from your own entry in
+ * the list beside them would be a puzzle. Falls back to "Me" rather than guessing.
  */
-function selfName(): string {
-  return new URLSearchParams(window.location.search).get('screenName') ?? 'Me';
+function ownName(self: SelfAccount | null): string {
+  const name = self?.displayName.trim();
+  return name !== undefined && name.length > 0 ? name : 'Me';
 }
 
 /**
@@ -92,6 +101,7 @@ export function App({ conversationId }: AppProps): JSX.Element {
   const [connection, setConnection] = React.useState<ConnectionState>('linking');
   const [theirTyping, setTheirTyping] = React.useState(false);
   const [typingName, setTypingName] = React.useState<string | null>(null);
+  const [self, setSelf] = React.useState<SelfAccount | null>(null);
   const [windowActive, setWindowActive] = React.useState(() => document.hasFocus());
   const [formatting, setFormatting] = React.useState<FormattingState | undefined>(undefined);
   const [loading, setLoading] = React.useState(true);
@@ -158,6 +168,11 @@ export function App({ conversationId }: AppProps): JSX.Element {
       } catch {
         // The pushed connection:state event is the primary source; until something arrives the
         // window says "Linking…" rather than claiming to be connected.
+      }
+      try {
+        setSelf(await invoke('self:get'));
+      } catch {
+        // Own lines read "Me" until this resolves, which is honest rather than wrong.
       }
     })();
   }, []);
@@ -275,7 +290,7 @@ export function App({ conversationId }: AppProps): JSX.Element {
               id: messageId,
               conversationId,
               senderId: '',
-              senderName: selfName(),
+              senderName: ownName(self),
               outgoing: true,
               body,
               sentAt: Date.now(),
@@ -294,7 +309,7 @@ export function App({ conversationId }: AppProps): JSX.Element {
         }
       })();
     },
-    [conversationId, setTyping]
+    [conversationId, setTyping, self]
   );
 
   /* --- menus ------------------------------------------------------------------ */
@@ -390,7 +405,7 @@ export function App({ conversationId }: AppProps): JSX.Element {
       style={{ width: '100%', height: '100%', flex: '1 1 auto', minHeight: 0 }}
       contact={contact}
       group={group}
-      selfName={selfName()}
+      selfName={ownName(self)}
       messages={messages}
       menus={menus}
       windowActive={windowActive}

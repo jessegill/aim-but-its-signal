@@ -13,9 +13,9 @@ Phases 1–5 are written, tested and green, the app runs against the live accoun
 conversations work.
 
 `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`, `npm test`
-(91 tests) all pass. The first launch found four bugs no test could have (see below); a second
-pass added Signal group conversations. Live: 73 contacts and 43 groups load, the buddy list
-renders both, and the daemon stays up.
+(97 tests) all pass. The first launch found four bugs no test could have (see below); later
+passes added Signal group conversations and made the buddy list conversation-driven. Live: 73
+contacts and 43 groups load, the account's username resolves, and the daemon stays up.
 
 ---
 
@@ -80,6 +80,26 @@ saying so.
 one given a local nickname — is renamed through their whole history at once. The alternative
 leaves old names on old messages, which is a lie the user cannot correct.
 
+**The buddy list is conversation-driven, not roster-driven.** A departure from SPEC §6, taken
+deliberately: on a real account the roster is everyone who has ever had your number, and the few
+conversations that matter drown in it. A buddy or room earns a row by carrying a message, or by
+being pinned or archived. The whole roster is one toggle away — *Edit → Show All Contacts &
+Rooms* — because a list of only people who have already written to you is a list you can never
+start a conversation from.
+
+**Sections are fixed in order: Pinned, the user's groups, Chat Rooms, Archived.** Pinned renders
+even when empty, since it is the only place the pin gesture is discoverable. Archived appears
+only when it holds something, and starts collapsed.
+
+**A shelf belongs to the conversation, not to the buddy or the group.** `conversation_shelf` is
+keyed by conversation id with no foreign key to either table — the same three states apply to a
+person and to a room, and neither owner can hold a concept that spans both. Only departures from
+`normal` are stored, so un-pinning is a delete rather than a written default.
+
+**The banner shows the Signal username; the title bar shows the product.** AIM titled the buddy
+list with the screen name, but that name is already the loudest thing on the page directly below
+it. A username is opt-in on Signal, so the banner falls back to "My Account".
+
 **A Signal group is a conversation, not a roster entry.** `signal_groups` is a separate table
 from `buddy_groups` and the two are never joined; the roster is people (SPEC §6), a group is a
 place. Rooms get their own fixed section in the buddy list, below the user's own groups, so a
@@ -129,7 +149,8 @@ emission killed startup, and window geometry was written to a closed database on
 | `src/main/windows.ts` | `Map<ConversationId, BrowserWindow>`, geometry, flash |
 | `src/main/ipc.ts` | Thin handlers, every argument validated |
 | `src/main/store/signal-groups.ts` | Signal group conversations and their membership |
-| `src/main/store/**` | Encrypted SQLite, expiry, outbound queue, 72 tests |
+| `src/main/store/shelves.ts` | Pinned / archived state, keyed by conversation |
+| `src/main/store/**` | Encrypted SQLite, expiry, outbound queue, 78 tests |
 | `src/renderer/ui/**` | AIM 5.1 components + `showcase.html` (open directly in a browser) |
 | `src/renderer/{buddylist,im,signon}/**` | The three window apps |
 | `src/shared/types.ts` | IPC surface and domain types |

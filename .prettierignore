@@ -21,8 +21,10 @@ resources/
 # Lockfile is npm's to format.
 package-lock.json
 
-# Per-machine tool settings, git-ignored and written by tooling rather than by hand.
+# Editor and per-machine tool settings, written by tooling rather than by hand. Prettier
+# reformatting these produces diffs nobody asked for in files nobody reads.
 .claude/settings.local.json
+*.code-workspace
 
 # Markdown is hand-wrapped at ~96 columns across SPEC.md, README.md and docs/, with tables
 # whose pipe alignment Prettier would rewrite wholesale. Prettier adds nothing to prose and

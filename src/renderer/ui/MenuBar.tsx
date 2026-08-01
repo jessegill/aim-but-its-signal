@@ -160,6 +160,13 @@ export interface BuddyListMenuHandlers {
   /** Toggle state for the "Show Offline…"-shaped slot. See note below. */
   showEmptyGroups?: boolean;
   onToggleShowEmptyGroups?: () => void;
+  /**
+   * Reveals contacts *and* chat rooms with no conversation yet, so one can be started. Named
+   * for what it covers: rooms are conversations too, and a flag called "contacts" that also
+   * governs rooms is the kind of quiet mismatch that goes wrong later.
+   */
+  showAllConversations?: boolean;
+  onToggleShowAllConversations?: () => void;
   /** True when exactly one buddy is selected — gates the People menu. */
   hasSelection?: boolean;
 }
@@ -202,6 +209,13 @@ export function buddyListMenus(h: BuddyListMenuHandlers = {}): MenuSpec[] {
           label: 'Show Empty Groups',
           checked: h.showEmptyGroups,
           onSelect: h.onToggleShowEmptyGroups,
+        },
+        {
+          // The buddy list shows conversations, not contacts. This is how you reach someone
+          // you have never messaged — without it there would be no way to start.
+          label: 'Show All Contacts & Rooms',
+          checked: h.showAllConversations,
+          onSelect: h.onToggleShowAllConversations,
         },
       ],
     },

@@ -78,6 +78,16 @@ export function registerIpc(service: AppService): void {
 
   ipcMain.handle('chats:get', () => service.getChats());
 
+  ipcMain.handle('conversations:get', () => service.getConversations());
+
+  ipcMain.handle('conversation:setShelf', (_event, conversationId: unknown, shelf: unknown) => {
+    const id = requireString(conversationId, 'conversationId');
+    if (shelf !== 'pinned' && shelf !== 'normal' && shelf !== 'archived') {
+      throw new TypeError("shelf must be 'pinned', 'normal' or 'archived'");
+    }
+    service.setShelf(id, shelf);
+  });
+
   ipcMain.handle('roster:move', (_event, buddyId: unknown, groupId: unknown) => {
     service.roster.moveBuddy(requireString(buddyId, 'buddyId'), requireNumber(groupId, 'groupId'));
   });

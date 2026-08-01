@@ -11,15 +11,26 @@
  * connection state in the banner and status bar is this device's link to the service, not a
  * person's status.
  *
- * A roster entry with zero messages is completely ordinary here (SPEC.md §6): the tree is
- * built from the roster, never from a conversation list, so a buddy nobody has ever messaged
- * renders exactly like everyone else and can be double-clicked to open a conversation.
+ * The tree is built from conversations, not from the roster — a departure from SPEC.md §6,
+ * which said the buddy list shows every contact. See the note at the top of BuddyListWindow
+ * for why. A contact with no conversation is still reachable through "Show All Contacts &
+ * Rooms", so nothing becomes unmessageable; it just stops taking up a row.
  */
 
 import * as React from 'react';
 import type { JSX } from 'react';
 
-import type { Buddy, BuddyId, ConnectionState, GroupChat, GroupId, Roster } from '@shared/types';
+import type {
+  Buddy,
+  BuddyId,
+  ConnectionState,
+  ConversationEntry,
+  ConversationShelf,
+  GroupChat,
+  GroupId,
+  Roster,
+  SelfAccount,
+} from '@shared/types';
 
 import { BuddyListWindow, buddyListMenus, type MenuItemSpec, type MenuSpec } from '../ui';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
@@ -36,22 +47,28 @@ import {
 const EMPTY_ROSTER: Roster = { groups: [], buddies: [] };
 
 /**
- * The linked account's own screen name for the yellow banner.
+ * What the yellow banner calls the user.
  *
- * CONTRACT GAP: nothing in src/shared/types.ts exposes the local account's display name, so it
- * is read from the window's query string if main chooses to pass one (the same mechanism
- * createImWindow uses for conversationId) and otherwise falls back to a neutral label. It is
- * never invented from roster data.
+ * The Signal username if the account has one, and otherwise a neutral label — never the phone
+ * number, and never a name invented from roster data. A username is opt-in on Signal, so null
+ * is the ordinary case rather than an error.
  */
-function selfScreenName(): string {
-  return new URLSearchParams(window.location.search).get('screenName') ?? 'My Account';
+const NO_USERNAME = 'My Account';
+
+function bannerName(self: SelfAccount | null): string {
+  const username = self?.username?.trim();
+  return username !== undefined && username.length > 0 ? username : NO_USERNAME;
 }
 
 export function App(): JSX.Element {
   const [roster, setRoster] = React.useState<Roster>(EMPTY_ROSTER);
+  const [self, setSelf] = React.useState<SelfAccount | null>(null);
   /** Signal group conversations. Listed apart from the roster; they are places, not people. */
   const [chats, setChats] = React.useState<GroupChat[]>([]);
   const [selectedChatId, setSelectedChatId] = React.useState<string | null>(null);
+  /** Which conversations the tree shows, and where. See the note in BuddyListWindow. */
+  const [conversations, setConversations] = React.useState<ConversationEntry[]>([]);
+  const [showAllConversations, setShowAllConversations] = React.useState(false);
   const [connection, setConnection] = React.useState<ConnectionState>('linking');
   const [selectedBuddyId, setSelectedBuddyId] = React.useState<BuddyId | null>(null);
   const [selectedGroupId, setSelectedGroupId] = React.useState<GroupId | null>(null);
@@ -87,6 +104,17 @@ export function App(): JSX.Element {
     } catch {
       // Rooms are additive. Failing to list them must not blank the buddy list, which is the
       // window's actual job — the section simply does not appear.
+    }
+    try {
+      setSelf(await invoke('self:get'));
+    } catch {
+      // The banner falls back to a neutral label; it never blocks the window.
+    }
+    try {
+      setConversations(await invoke('conversations:get'));
+    } catch {
+      // An empty list hides everything but the section headers, which is a visibly wrong tree
+      // rather than a subtly wrong one — the right failure mode for something this structural.
     }
   }, []);
 
@@ -124,6 +152,10 @@ export function App(): JSX.Element {
   useIpcEvent('roster:updated', () => void refresh());
   useIpcEvent('connection:state', (state) => setConnection(state));
   useIpcEvent('im:message', (conversationId, message) => {
+    // A conversation nobody has seen before has to join the tree — that is the whole point of
+    // an activity-driven list. Re-read only on the first message for an unknown id, so an
+    // active conversation does not cause a round trip per line.
+    if (!conversations.some((c) => c.id === conversationId)) void refresh();
     if (message.outgoing) return;
     setUnreadByBuddy((prev) => ({ ...prev, [conversationId]: (prev[conversationId] ?? 0) + 1 }));
   });
@@ -181,6 +213,43 @@ export function App(): JSX.Element {
       mutate('window:openIm', () => invoke('window:openIm', chat.id));
     },
     [mutate]
+  );
+
+  /* --- shelves -------------------------------------------------------------- */
+
+  const shelfOf = React.useCallback(
+    (id: string): ConversationShelf => conversations.find((c) => c.id === id)?.shelf ?? 'normal',
+    [conversations]
+  );
+
+  const setShelf = React.useCallback(
+    (id: string, shelf: ConversationShelf): void => {
+      mutate('conversation:setShelf', () => invoke('conversation:setShelf', id, shelf));
+    },
+    [mutate]
+  );
+
+  /**
+   * Pin / archive items for a conversation, of either kind.
+   *
+   * Both are toggles rather than one-way doors: the menu always offers the way back, so
+   * archiving something is never a decision the user has to be sure about.
+   */
+  const shelfItems = React.useCallback(
+    (id: string): MenuItemSpec[] => {
+      const shelf = shelfOf(id);
+      return [
+        {
+          label: shelf === 'pinned' ? 'Unpin' : 'Pin to Top',
+          onSelect: () => setShelf(id, shelf === 'pinned' ? 'normal' : 'pinned'),
+        },
+        {
+          label: shelf === 'archived' ? 'Move to Buddy List' : 'Archive',
+          onSelect: () => setShelf(id, shelf === 'archived' ? 'normal' : 'archived'),
+        },
+      ];
+    },
+    [shelfOf, setShelf]
   );
 
   const toggleGroup = React.useCallback(
@@ -289,6 +358,8 @@ export function App(): JSX.Element {
         items: [
           { label: 'Send Instant Message', accelerator: '↵', onSelect: () => openIm(buddy) },
           { separator: true },
+          ...shelfItems(buddy.id),
+          { separator: true },
           { label: 'Set Nickname…', onSelect: () => promptNickname(buddy) },
           {
             label: 'Remove Nickname',
@@ -301,7 +372,31 @@ export function App(): JSX.Element {
         ],
       });
     },
-    [roster.buddies, openIm, promptNickname, mutate, groupAssignmentItems]
+    [roster.buddies, openIm, promptNickname, mutate, groupAssignmentItems, shelfItems]
+  );
+
+  /**
+   * Rooms get pin and archive but nothing else. Nicknames and group assignment are roster
+   * concepts, and a chat room is not in the roster — offering them greyed out would imply a
+   * capability that is missing rather than one that does not apply.
+   */
+  const onChatContextMenu = React.useCallback(
+    (chat: GroupChat, e: React.MouseEvent): void => {
+      e.preventDefault();
+      setSelectedChatId(chat.id);
+      setSelectedBuddyId(null);
+      setSelectedGroupId(null);
+      setMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          { label: 'Open Chat Room', accelerator: '↵', onSelect: () => openChat(chat) },
+          { separator: true },
+          ...shelfItems(chat.id),
+        ],
+      });
+    },
+    [openChat, shelfItems]
   );
 
   const onGroupContextMenu = React.useCallback(
@@ -382,6 +477,8 @@ export function App(): JSX.Element {
       hasSelection: selectedBuddy !== null,
       showEmptyGroups,
       onToggleShowEmptyGroups: () => setShowEmptyGroups((v) => !v),
+      showAllConversations,
+      onToggleShowAllConversations: () => setShowAllConversations((v) => !v),
       onNewGroup: () => promptNewGroup(),
       onCloseWindow: windowChrome.close,
       onSendMessage: selectedBuddy ? () => openIm(selectedBuddy) : undefined,
@@ -421,6 +518,7 @@ export function App(): JSX.Element {
   }, [
     selectedBuddy,
     showEmptyGroups,
+    showAllConversations,
     promptNewGroup,
     openIm,
     promptNickname,
@@ -440,9 +538,11 @@ export function App(): JSX.Element {
         /* The library sizes itself for the showcase page; in a real frameless BrowserWindow
            the window IS the component, so it fills whatever the OS gives it. */
         style={{ width: '100%', flex: '1 1 auto', minHeight: 0 }}
-        screenName={selfScreenName()}
+        screenName={bannerName(self)}
         roster={roster}
         chats={chats}
+        conversations={conversations}
+        showAllConversations={showAllConversations}
         connection={connection}
         unreadByBuddy={unreadByBuddy}
         selectedBuddyId={selectedBuddyId}
@@ -464,6 +564,7 @@ export function App(): JSX.Element {
           setSelectedGroupId(null);
         }}
         onOpenChat={openChat}
+        onChatContextMenu={onChatContextMenu}
         onSelectGroup={(id) => {
           setSelectedGroupId(id);
           setSelectedBuddyId(null);

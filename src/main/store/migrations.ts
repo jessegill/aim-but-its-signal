@@ -293,6 +293,31 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    name: 'conversation-shelves',
+    up: (db) => {
+      // Where a conversation sits in the buddy list: pinned to the top, in its ordinary place,
+      // or archived out of the way.
+      //
+      // Only *departures* from the default are stored. A conversation with no row here is
+      // 'normal', which means this table stays small no matter how many conversations exist,
+      // and a conversation the user has never sorted cannot be distinguished from one they
+      // explicitly un-pinned — correctly, because those are the same state.
+      //
+      // `conversation_id` is not a foreign key to anything: it is a buddy ACI for a 1:1 and a
+      // base64 group id for a room, and neither table owns both. It also has to survive a
+      // contact being removed from the roster, so the shelf outlives what it points at.
+      db.exec(`
+        CREATE TABLE conversation_shelf (
+          conversation_id TEXT PRIMARY KEY NOT NULL,
+          shelf           TEXT NOT NULL,
+          updated_at      INTEGER NOT NULL DEFAULT 0,
+          CHECK (shelf IN ('pinned', 'archived'))
+        ) STRICT;
+      `);
+    },
+  },
 ];
 
 /** Highest schema version this build knows how to produce. */

@@ -31,6 +31,8 @@ import { createRosterStore } from './roster.ts';
 import type { RosterStore } from './roster.ts';
 import { createSignalGroupStore } from './signal-groups.ts';
 import type { SignalGroupStore } from './signal-groups.ts';
+import { createShelfStore } from './shelves.ts';
+import type { ShelfStore } from './shelves.ts';
 import { createWindowStore } from './windows.ts';
 import type { WindowStore } from './windows.ts';
 import { createIdentityStore } from './identity.ts';
@@ -43,6 +45,7 @@ export * from './attachments.ts';
 export * from './messages.ts';
 export * from './roster.ts';
 export * from './signal-groups.ts';
+export * from './shelves.ts';
 export * from './windows.ts';
 export * from './identity.ts';
 
@@ -68,6 +71,8 @@ export interface Store {
   readonly roster: RosterStore;
   /** Signal group conversations. Unrelated to the roster's local buddy groups. */
   readonly signalGroups: SignalGroupStore;
+  /** Pinned / archived state per conversation. */
+  readonly shelves: ShelfStore;
   readonly windows: WindowStore;
   readonly identity: IdentityStore;
   readonly attachments: AttachmentCache;
@@ -106,6 +111,7 @@ export function openStore(options: StoreOptions): Store {
   const messages = createMessageStore(db, attachments, options.messages);
   const roster = createRosterStore(db);
   const signalGroups = createSignalGroupStore(db);
+  const shelves = createShelfStore(db);
   const windows = createWindowStore(db);
   const identity = createIdentityStore(db, messages);
 
@@ -120,6 +126,7 @@ export function openStore(options: StoreOptions): Store {
     messages,
     roster,
     signalGroups,
+    shelves,
     windows,
     identity,
     attachments,

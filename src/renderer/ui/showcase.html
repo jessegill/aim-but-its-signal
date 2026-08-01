@@ -526,7 +526,7 @@ Multi-line input. Inset border, white face, no rounding anywhere.</textarea>
             <div class="aim-window aim-buddylist">
               <div class="aim-titlebar" data-chrome>
                 <span class="aim-titlebar__icon" data-mark="16"></span>
-                <span class="aim-titlebar__text">CoolBuddy2003</span>
+                <span class="aim-titlebar__text">AIMgnal</span>
                 <span class="aim-titlebar__buttons">
                   <button class="aim-titlebar__btn" data-g="min"></button>
                   <button class="aim-titlebar__btn" data-g="max"></button>
@@ -601,6 +601,27 @@ Multi-line input. Inset border, white face, no rounding anywhere.</textarea>
                 </div>
 
                 <div class="aim-buddylist__tree" role="tree">
+                  <!-- Pinned is always first and always present, even empty: it is the only
+                       place the pin gesture is discoverable. -->
+                  <div class="aim-group" data-group>
+                    <div class="aim-group__header" title="Pinned conversations, above everything.">
+                      <span class="aim-group__expander" data-g="tri-open"></span>
+                      <span class="aim-group__name">Pinned</span>
+                      <span class="aim-group__count">(2)</span>
+                    </div>
+                    <div class="aim-group__children">
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="buddy"></span>
+                        <span class="aim-buddy__name">Dana Whitfield</span>
+                        <span class="aim-buddy__unread" title="3 unread">(3)</span>
+                      </div>
+                      <div class="aim-buddy">
+                        <span class="aim-buddy__icon" data-g="room"></span>
+                        <span class="aim-buddy__name">Weekend Plans</span>
+                      </div>
+                    </div>
+                  </div>
+
                   <div class="aim-group" data-group>
                     <div
                       class="aim-group__header"
@@ -721,6 +742,20 @@ Multi-line input. Inset border, white face, no rounding anywhere.</textarea>
                         <span class="aim-buddy__name">Book Club</span>
                       </div>
                     </div>
+                  </div>
+
+                  <!-- Archived is last and starts closed. A destination, not a place you
+                       look first. -->
+                  <div class="aim-group" data-group>
+                    <div
+                      class="aim-group__header"
+                      title="Archived conversations. Right-click to move one back."
+                    >
+                      <span class="aim-group__expander" data-g="tri-closed"></span>
+                      <span class="aim-group__name">Archived</span>
+                      <span class="aim-group__count">(9)</span>
+                    </div>
+                    <div class="aim-group__children" hidden></div>
                   </div>
                 </div>
 

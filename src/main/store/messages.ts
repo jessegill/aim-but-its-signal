@@ -169,6 +169,15 @@ export interface MessageStore {
   getLatestMessage(conversationId: ConversationId): Message | null;
   countMessages(conversationId: ConversationId): number;
   listConversationIds(): ConversationId[];
+  /**
+   * Every conversation that has ever carried a message, newest first.
+   *
+   * This is what makes the buddy list conversation-driven rather than roster-driven: a contact
+   * appears once you have actually talked, not merely because they exist. Expired messages are
+   * excluded like everywhere else, so a conversation whose entire history has disappeared stops
+   * being listed — which is the correct outcome, not a bug.
+   */
+  listConversationActivity(): { conversationId: ConversationId; lastMessageAt: number }[];
 
   // -- mutations ----------------------------------------------------------
   applyEdit(
@@ -735,6 +744,21 @@ export function createMessageStore(
         )
         .pluck()
         .all(at) as string[];
+    },
+
+    listConversationActivity() {
+      const at = now();
+      sweepIfDue(at);
+      const rows = raw
+        .prepare(
+          `SELECT m.conversation_id AS id, MAX(m.sent_at) AS last_at
+             FROM messages m
+            WHERE ${NOT_EXPIRED}
+            GROUP BY m.conversation_id
+            ORDER BY last_at DESC`
+        )
+        .all(at) as { id: string; last_at: number }[];
+      return rows.map((row) => ({ conversationId: row.id, lastMessageAt: row.last_at }));
     },
 
     // -- mutations ---------------------------------------------------------

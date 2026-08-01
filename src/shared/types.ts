@@ -169,6 +169,33 @@ export interface GroupMember {
 }
 
 // ---------------------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a conversation sits in the buddy list.
+ *
+ * Applies to both kinds — a person and a chat room are both conversations, and the user sorts
+ * them with the same gesture. 'normal' is the default and is never stored.
+ */
+export type ConversationShelf = 'pinned' | 'normal' | 'archived';
+
+/**
+ * A conversation the buddy list should show.
+ *
+ * Its existence is the point: the list is built from conversations that have actually happened
+ * (or that the user has explicitly shelved), not from the whole roster. A contact with no entry
+ * here is someone you have never talked to, and they stay out of the tree until you do — or
+ * until "Show All Contacts" is on.
+ */
+export interface ConversationEntry {
+  id: ConversationId;
+  shelf: ConversationShelf;
+  /** Null for a conversation that is listed only because it was pinned or archived. */
+  lastMessageAt: number | null;
+}
+
+// ---------------------------------------------------------------------------
 // Connection
 // ---------------------------------------------------------------------------
 
@@ -206,6 +233,13 @@ export interface IpcRequests {
    * membership that no buddy group has.
    */
   'chats:get': () => GroupChat[];
+
+  /**
+   * Which conversations the buddy list should show, and where. The roster and chat list supply
+   * identity; this supplies membership of the tree.
+   */
+  'conversations:get': () => ConversationEntry[];
+  'conversation:setShelf': (conversationId: ConversationId, shelf: ConversationShelf) => void;
   'roster:move': (buddyId: BuddyId, groupId: GroupId) => void;
   'roster:setNick': (buddyId: BuddyId, nickname: string | null) => void;
 
@@ -233,6 +267,12 @@ export interface SelfAccount {
   id: BuddyId;
   number: string | null;
   displayName: string;
+  /**
+   * The Signal username (`name.42`), if the account has one. Null is the common case — a
+   * username is opt-in on Signal — so every caller must have a fallback rather than treating
+   * this as the identity.
+   */
+  username: string | null;
 }
 
 /** main → renderer, pushed. */

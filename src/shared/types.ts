@@ -90,6 +90,88 @@ export interface Attachment {
   isVoiceNote: boolean;
 }
 
+/**
+ * Scheme the main process serves cached attachment bytes on, for inline thumbnails.
+ *
+ * Not `file://`. That works in a packaged build, whose renderer is itself a `file://` document,
+ * and is **blocked in dev**, where the renderer comes from `http://localhost:5173` and Chromium
+ * refuses a `file://` subresource from an `http://` origin — so thumbnails rendered in the
+ * packaged app and silently vanished under `npm run dev`.
+ *
+ * It also follows the same rule as the `attachment:open` channel: **the path is resolved in main
+ * from the ids**, so a URL names a message and an attachment, never a file, and nothing outside
+ * the attachment cache can be served.
+ */
+export const ATTACHMENT_SCHEME = 'aimgnal-attachment';
+
+/**
+ * The one place this URL is built, so main and the renderer cannot drift on its shape. Both ids
+ * are opaque and contain characters that must not be read as path structure — a message id is
+ * `<aci>:<sentAt>` — so each is encoded whole.
+ */
+export function attachmentUrl(messageId: string, attachmentId: string): string {
+  return `${ATTACHMENT_SCHEME}://file/${encodeURIComponent(messageId)}/${encodeURIComponent(attachmentId)}`;
+}
+
+/**
+ * The inverse, used by the main-process handler. Returns null for anything malformed rather
+ * than throwing — a bad URL is a 404, not a crash in the protocol handler.
+ *
+ * Paired with {@link attachmentUrl} in one file so the encoding can never drift between the
+ * side that writes it and the side that reads it. A message id contains a colon, which is
+ * exactly the character that would quietly change meaning if either side stopped encoding.
+ */
+export function parseAttachmentUrl(
+  url: string
+): { messageId: string; attachmentId: string } | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== `${ATTACHMENT_SCHEME}:`) return null;
+
+  const segments = parsed.pathname.split('/').filter((part) => part !== '');
+  if (segments.length !== 2) return null;
+  try {
+    const [messageId, attachmentId] = segments.map((part) => decodeURIComponent(part));
+    if (messageId === '' || attachmentId === '') return null;
+    return { messageId, attachmentId };
+  } catch {
+    // Malformed percent-encoding.
+    return null;
+  }
+}
+
+/**
+ * A file the user chose in the main process's picker, described well enough for the composer
+ * to show it without ever touching the disk (SPEC.md §3).
+ *
+ * `path` is deliberately handed to the renderer and handed straight back on `im:send`. That is
+ * only safe because main vends these paths and refuses any it did not vend — see the note on
+ * `im:send`. The renderer cannot name a file of its own choosing.
+ */
+export interface PickedFile {
+  path: string;
+  /** Basename, for the composer chip. */
+  name: string;
+  size: number;
+  contentType: string;
+}
+
+/** A file the picker refused, and why. Reported rather than dropped. */
+export interface RejectedFile {
+  name: string;
+  reason: string;
+}
+
+/**
+ * Signal's per-attachment ceiling. Checked in main at pick time so an oversized file is refused
+ * with a reason the user can act on, instead of failing at send with a daemon error.
+ */
+export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
 export interface QuoteStub {
   id: string;
   authorId: BuddyId;
@@ -218,6 +300,14 @@ export interface IpcRequests {
     group: GroupChat | null;
   };
   'im:subscribe': (conversationId: ConversationId) => void;
+  /**
+   * `body` may be empty when `attachments` is not — sending a file with no caption is ordinary.
+   *
+   * Every path in `attachments` must be one main itself returned from `dialog:pickAttachments`.
+   * A path the renderer chose freely would be an arbitrary-file-*read* primitive: a compromised
+   * renderer could mail any file on the disk to a contact. Main keeps the ledger; this argument
+   * is a reference to something already picked, not a filename.
+   */
   'im:send': (
     conversationId: ConversationId,
     body: string,
@@ -225,6 +315,32 @@ export interface IpcRequests {
   ) => { messageId: string };
   'im:markRead': (conversationId: ConversationId) => void;
   'im:setTyping': (conversationId: ConversationId, isTyping: boolean) => void;
+
+  /**
+   * Opens the system file picker. Main-process only: a renderer cannot browse the disk
+   * (SPEC.md §3). Returns nothing on cancel — an empty `files` and an empty `rejected`.
+   *
+   * `kind` only chooses which filter the dialog opens with; it is a convenience, not a
+   * restriction. "All Files" is always available in the dialog, and main applies the same
+   * checks either way.
+   */
+  'dialog:pickAttachments': (kind?: 'any' | 'image') => {
+    files: PickedFile[];
+    rejected: RejectedFile[];
+  };
+
+  /**
+   * Hands a received attachment to the system.
+   *
+   * Addressed by **ids, never by a path**. Main resolves the path from the message row; a
+   * renderer-supplied path would be an arbitrary-file-open primitive. `opened` is false when the
+   * user declined the disappearing-message warning or the file is no longer on disk, and
+   * `reason` says which.
+   */
+  'attachment:open': (
+    messageId: string,
+    attachmentId: string
+  ) => { opened: boolean; reason: string | null };
 
   'roster:get': () => Roster;
   /**

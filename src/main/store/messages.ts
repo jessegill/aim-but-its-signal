@@ -1026,6 +1026,34 @@ export function createMessageStore(
 
     markOutboundSent(id, sentTimestamp, selfId, at) {
       const stamp = at ?? now();
+      const messageId = deriveMessageId(selfId, sentTimestamp);
+
+      const queuedBefore = raw
+        .prepare<OutboundQueueRow>(`SELECT * FROM outbound_queue WHERE id = ?`)
+        .get(id);
+      if (!queuedBefore) {
+        throw new Error(`markOutboundSent: no queued message ${id}. Enqueue before sending.`);
+      }
+
+      // Copied into the cache *before* the transaction, mirroring the inbound path: the file
+      // must exist under our management before a row can point at it. Signal never syncs a
+      // message back to the device that sent it, so this copy is the only record the sender's
+      // own log will ever have of what they attached — without it a sent file leaves no trace
+      // here at all.
+      //
+      // Attachment ids are derived from the message id, so a retry adopts onto the same rows
+      // (`ON CONFLICT(id) DO NOTHING`) rather than duplicating them.
+      const sourcePaths: string[] = queuedBefore.attachments_json
+        ? (JSON.parse(queuedBefore.attachments_json) as string[])
+        : [];
+      const adopted = attachmentCache.adopt(
+        messageId,
+        sourcePaths.map((sourcePath, index) => ({
+          id: `${messageId}:a${String(index)}`,
+          path: sourcePath,
+        }))
+      );
+
       const commit = db.transaction(() => {
         const queued = raw
           .prepare<OutboundQueueRow>(`SELECT * FROM outbound_queue WHERE id = ?`)
@@ -1034,12 +1062,12 @@ export function createMessageStore(
           throw new Error(`markOutboundSent: no queued message ${id}. Enqueue before sending.`);
         }
 
-        insertMessage.run({
+        const written = insertMessage.run({
           // The queue row's id is a client-generated handle for the *send attempt*. The
           // message's identity is the tuple, which only exists once the daemon assigns the
           // send timestamp — so the history row is keyed by (selfId, sentTimestamp), not by
           // the queue handle.
-          id: deriveMessageId(selfId, sentTimestamp),
+          id: messageId,
           conversation_id: queued.conversation_id,
           sender_id: selfId,
           outgoing: 1,
@@ -1054,10 +1082,30 @@ export function createMessageStore(
           quote_sent_at: null,
           quote_author_name: null,
           quote_text: null,
-          kind: 'text',
+          kind: adopted.length > 0 ? 'attachment' : 'text',
           receipt: 'sent',
           had_view_once: 0,
         });
+
+        // Guarded, exactly as the inbound path is: if a sync echo of this send already owns the
+        // (sender_id, sent_at) row then it also brought its own attachment rows, and adding
+        // ours would show the same file twice.
+        const ownsRow = written.changes === 1;
+        if (ownsRow) {
+          let order = 0;
+          for (const attachment of adopted) {
+            insertAttachment.run({
+              id: attachment.id,
+              message_id: messageId,
+              sort_order: order++,
+              content_type: attachment.contentType,
+              filename: attachment.filename,
+              size: attachment.size,
+              path: attachment.path,
+              is_voice_note: bool(attachment.isVoiceNote),
+            });
+          }
+        }
 
         // The ledger keeps only the timestamp from here on. Retaining the body would give an
         // ephemeral message a second home that the expiry sweep would have to chase.
@@ -1070,9 +1118,15 @@ export function createMessageStore(
           )
           .run(sentTimestamp, id);
 
-        return queued.expires_at ?? null;
+        return { expiresAt: queued.expires_at ?? null, ownsRow };
       });
-      noteExpiry(commit());
+
+      const { expiresAt, ownsRow } = commit();
+      noteExpiry(expiresAt);
+      // Nothing points at the copies we took, so they are unreachable by every sweep. Destroy
+      // them rather than leaving an unmanaged copy of an ephemeral file in the cache.
+      if (!ownsRow) attachmentCache.shredAll(adopted.map((a) => a.path));
+
       // Look up by natural key, not by our client id: if the sync echo of this message
       // happened to land first it already owns the (sender_id, sent_at) row.
       const stored = hydrateOne(

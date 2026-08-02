@@ -1,23 +1,34 @@
 /**
  * FormattingToolbar — the strip between the message log and the input pane.
  *
- * Era-correct contents, in AIM 5.1 order: font family, size, B / I / U, text
- * colour, background colour, then the small extras (link, emoticon, quote).
- * Flat buttons that gain a bevel on hover and go inset when active — exactly
- * how a 2003 toolbar behaved.
+ * The icon strip is AIM 5.1's, in AIM's own order and grouping:
+ *
+ *     A  A̲     A· A A·    B  I  U     link  🖼  ✉  ☺
+ *     └colour┘ └─size─┘  └─style─┘   └───inserts────┘
+ *
+ * Four groups separated by rules: the two colour swatches, the three text-size
+ * buttons, bold/italic/underline, then the insert actions. No font dropdown, no
+ * size dropdown, and no palette of colour chips — the era's toolbar was icons.
  *
  * Presentational: it reports state changes upward and renders whatever `state`
  * it is handed. It does not own the composer's formatting model.
  *
  * A note on scope: Signal's wire format supports bold, italic, strikethrough,
- * monospace and spoiler — not fonts, sizes or colours. So the family/size/colour
- * controls are cosmetic-local by nature. `remoteSafeOnly` greys them out and
- * says so on hover, rather than letting the user believe they are sending
- * purple 18pt Comic Sans to somebody's phone.
+ * monospace and spoiler — not fonts, sizes or colours. Underline is in the same
+ * position: AIM had it, Signal cannot carry it.
+ *
+ * `remoteSafeOnly` marks those controls, and it does it with a **tooltip, not by
+ * disabling them**. They used to be greyed out, back when clicking one changed a
+ * state object that nothing read — an inert button is better greyed than live.
+ * They now restyle the composer itself, so they do something real and visible
+ * and being clickable is honest. What they must never do is let the user believe
+ * they are sending purple 18pt Comic Sans to somebody's phone, and the hover text
+ * is what prevents that.
  */
 
 import * as React from 'react';
-import { Select, cx } from './controls';
+import { cx } from './controls';
+import { GlyphEnvelope, GlyphPicture, GlyphSmiley } from './icons';
 
 export interface FormattingState {
   bold?: boolean;
@@ -34,45 +45,28 @@ export interface FormattingState {
 export interface FormattingToolbarProps {
   state?: FormattingState;
   onChange?: (next: FormattingState) => void;
-  /** Grey out anything the protocol cannot actually transmit. */
+  /**
+   * Say, on hover, which controls the protocol cannot transmit. They stay usable — they restyle
+   * the composer locally — but the user is told the styling stops at this window.
+   */
   remoteSafeOnly?: boolean;
   onPickColor?: (which: 'text' | 'background') => void;
   onInsertLink?: () => void;
-  onInsertEmoticon?: () => void;
-  onQuoteSelection?: () => void;
+  /** The 🖼 button — attach a picture. */
+  onInsertImage?: () => void;
+  /** The ✉ button — attach any file. */
   onAttach?: () => void;
+  onInsertEmoticon?: () => void;
+  /** Whether the emoticon palette is showing, so the smiley reads as a toggle. */
+  emoticonsOpen?: boolean;
   disabled?: boolean;
   className?: string;
   /** Extra controls pinned to the right end. */
   children?: React.ReactNode;
 }
 
-/* Fonts a 2003 Windows box actually had. macOS ships Verdana/Georgia/Courier
- * New/Trebuchet; Tahoma and Comic Sans may be missing, which is fine — the
- * dropdown is a label list, not a promise. */
-const FONTS = [
-  'Tahoma',
-  'Verdana',
-  'Arial',
-  'Times New Roman',
-  'Courier New',
-  'Georgia',
-  'Trebuchet MS',
-  'Comic Sans MS',
-];
-
-const SIZES = ['8', '9', '10', '11', '12', '14', '18', '24'];
-
-const SWATCHES = [
-  '#000000',
-  '#808080',
-  '#D40000',
-  '#C87A00',
-  '#008000',
-  '#0000C0',
-  '#800080',
-  '#FFCC00',
-];
+/** The three steps behind the small/medium/large `A` buttons. */
+const SIZES = { small: '9', medium: '11', large: '14' } as const;
 
 interface ToggleProps {
   on?: boolean;
@@ -108,45 +102,102 @@ export function FormattingToolbar({
   remoteSafeOnly = true,
   onPickColor,
   onInsertLink,
-  onInsertEmoticon,
-  onQuoteSelection,
+  onInsertImage,
   onAttach,
+  onInsertEmoticon,
+  emoticonsOpen,
   disabled,
   className,
   children,
 }: FormattingToolbarProps) {
   const set = (patch: Partial<FormattingState>) => onChange?.({ ...state, ...patch });
 
-  const cosmeticTitle = remoteSafeOnly
-    ? 'Not transmitted — the protocol carries no font, size or colour information'
-    : undefined;
+  const cosmeticNote = remoteSafeOnly
+    ? ' — shown here only; the protocol carries no font, size or colour information'
+    : '';
 
-  /** Cosmetic controls are dead when the protocol cannot carry them. */
-  const cosmeticDisabled = Boolean(disabled) || remoteSafeOnly;
+  /** Cosmetic controls follow the toolbar's own disabled state, nothing more. */
+  const cosmeticDisabled = Boolean(disabled);
+
+  const currentSize = state.fontSize ?? SIZES.medium;
+  // Medium is the default, so at rest no size button reads as pressed — AIM's strip sat flat
+  // until you actually chose something. Only a deliberate small/large shows the inset bevel.
+  const sizeChosen = state.fontSize !== undefined && state.fontSize !== SIZES.medium;
 
   return (
     <div className={cx('aim-toolbar', 'aim-fmt', className)} role="toolbar" aria-label="Formatting">
-      <Select
-        wrapperClassName="aim-fmt__font"
-        aria-label="Font"
-        title={cosmeticTitle ?? 'Font'}
+      {/* --- colour: text, then background ---------------------------------- */}
+      <button
+        type="button"
+        className="aim-toolbar__btn"
+        title={`Text colour${cosmeticNote}`}
+        aria-label="Text colour"
         disabled={cosmeticDisabled}
-        value={state.fontFamily ?? 'Tahoma'}
-        onChange={(e) => set({ fontFamily: e.target.value })}
-        options={FONTS.map((f) => ({ value: f, label: f }))}
+        onClick={() => onPickColor?.('text')}
+      >
+        <span className="aim-fmt__letter" style={{ color: state.color ?? '#0000C0' }}>
+          A
+        </span>
+      </button>
+      <button
+        type="button"
+        className="aim-toolbar__btn"
+        title={`Background colour${cosmeticNote}`}
+        aria-label="Background colour"
+        disabled={cosmeticDisabled}
+        onClick={() => onPickColor?.('background')}
+      >
+        <span
+          className="aim-fmt__letter aim-fmt__letter--onchip"
+          style={{ color: '#0000C0', background: state.background ?? '#FFFFCC' }}
+        >
+          A
+        </span>
+      </button>
+
+      <span className="aim-toolbar__sep" />
+
+      {/* --- size: small, medium, large ------------------------------------- */}
+      <Toggle
+        disabled={cosmeticDisabled}
+        on={sizeChosen && currentSize === SIZES.small}
+        label="Small text"
+        title={`Small text${cosmeticNote}`}
+        glyph={
+          <span className="aim-fmt__letter" style={{ fontSize: 9 }}>
+            A
+          </span>
+        }
+        onClick={() => set({ fontSize: SIZES.small })}
       />
-      <Select
-        wrapperClassName="aim-fmt__size"
-        aria-label="Font size"
-        title={cosmeticTitle ?? 'Size'}
+      <Toggle
         disabled={cosmeticDisabled}
-        value={state.fontSize ?? '11'}
-        onChange={(e) => set({ fontSize: e.target.value })}
-        options={SIZES.map((s) => ({ value: s, label: s }))}
+        on={sizeChosen && currentSize === SIZES.medium}
+        label="Medium text"
+        title={`Medium text${cosmeticNote}`}
+        glyph={
+          <span className="aim-fmt__letter" style={{ fontSize: 12 }}>
+            A
+          </span>
+        }
+        onClick={() => set({ fontSize: SIZES.medium })}
+      />
+      <Toggle
+        disabled={cosmeticDisabled}
+        on={sizeChosen && currentSize === SIZES.large}
+        label="Large text"
+        title={`Large text${cosmeticNote}`}
+        glyph={
+          <span className="aim-fmt__letter" style={{ fontSize: 15 }}>
+            A
+          </span>
+        }
+        onClick={() => set({ fontSize: SIZES.large })}
       />
 
       <span className="aim-toolbar__sep" />
 
+      {/* --- bold / italic / underline -------------------------------------- */}
       <Toggle
         disabled={disabled}
         on={state.bold}
@@ -162,108 +213,48 @@ export function FormattingToolbar({
         onClick={() => set({ italic: !state.italic })}
       />
       <Toggle
-        disabled={disabled}
+        disabled={cosmeticDisabled}
         on={state.underline}
         label="Underline"
+        title={`Underline${cosmeticNote}`}
         glyph={<u>U</u>}
         onClick={() => set({ underline: !state.underline })}
       />
-      <Toggle
-        disabled={disabled}
-        on={state.strike}
-        label="Strikethrough"
-        glyph={<s>S</s>}
-        onClick={() => set({ strike: !state.strike })}
-      />
-      <Toggle
-        disabled={disabled}
-        on={state.mono}
-        label="Monospace"
-        glyph={<span style={{ fontFamily: 'var(--aim-font-mono)', fontSize: 11 }}>M</span>}
-        onClick={() => set({ mono: !state.mono })}
-      />
 
       <span className="aim-toolbar__sep" />
 
-      {/* Colour buttons: an "A" sitting on a colour chip — the AIM/Office idiom. */}
+      {/* --- inserts: link, picture, file, emoticon -------------------------- */}
       <button
         type="button"
-        className="aim-toolbar__btn"
-        title={cosmeticTitle ?? 'Text colour'}
-        aria-label="Text colour"
-        disabled={cosmeticDisabled}
-        onClick={() => onPickColor?.('text')}
-      >
-        <span className="aim-fmt__stack">
-          <span style={{ fontWeight: 'bold' }}>A</span>
-          <span className="aim-fmt__swatch" style={{ background: state.color ?? '#000000' }} />
-        </span>
-      </button>
-      <button
-        type="button"
-        className="aim-toolbar__btn"
-        title={cosmeticTitle ?? 'Background colour'}
-        aria-label="Background colour"
-        disabled={cosmeticDisabled}
-        onClick={() => onPickColor?.('background')}
-      >
-        <span className="aim-fmt__stack">
-          <span style={{ fontWeight: 'bold', background: '#ffffcc', padding: '0 2px' }}>A</span>
-          <span className="aim-fmt__swatch" style={{ background: state.background ?? '#FFFFFF' }} />
-        </span>
-      </button>
-
-      {/* Quick palette, the way the era did it: eight chips, no picker dialog. */}
-      <span className="aim-toolbar__sep" />
-      {SWATCHES.map((c) => (
-        <button
-          key={c}
-          type="button"
-          className="aim-toolbar__btn"
-          style={{ width: 14 }}
-          title={cosmeticTitle ?? `Text colour ${c}`}
-          aria-label={`Text colour ${c}`}
-          disabled={cosmeticDisabled}
-          onClick={() => set({ color: c })}
-        >
-          <span
-            style={{
-              display: 'block',
-              width: 9,
-              height: 9,
-              background: c,
-              border: '1px solid #5A5A5A',
-            }}
-          />
-        </button>
-      ))}
-
-      <span className="aim-toolbar__sep" />
-
-      <Toggle
-        disabled={disabled}
-        label="Insert link"
-        glyph={<span style={{ fontSize: 11 }}>🔗</span>}
+        className="aim-toolbar__btn aim-fmt__link"
+        title="Insert link"
+        aria-label="Insert link"
+        disabled={Boolean(disabled) || onInsertLink === undefined}
         onClick={onInsertLink}
+      >
+        link
+      </button>
+      <Toggle
+        disabled={disabled}
+        label="Insert picture"
+        title="Attach a picture"
+        glyph={<GlyphPicture size={14} />}
+        onClick={onInsertImage}
       />
       <Toggle
         disabled={disabled}
-        label="Insert emoticon"
-        glyph={<span style={{ fontFamily: 'var(--aim-font-ui)', fontSize: 11 }}>:-)</span>}
-        style={{ width: 28 }}
-        onClick={onInsertEmoticon}
-      />
-      <Toggle
-        disabled={disabled}
-        label="Quote selection"
-        glyph={<span style={{ fontSize: 13 }}>❝</span>}
-        onClick={onQuoteSelection}
-      />
-      <Toggle
-        disabled={disabled}
-        label="Attach file"
-        glyph={<span style={{ fontSize: 12 }}>📎</span>}
+        label="Send a file"
+        title="Attach a file"
+        glyph={<GlyphEnvelope size={14} />}
         onClick={onAttach}
+      />
+      <Toggle
+        disabled={disabled}
+        on={emoticonsOpen}
+        label="Insert emoticon"
+        title="Insert emoticon — AIM's own set, sent as text"
+        glyph={<GlyphSmiley size={14} />}
+        onClick={onInsertEmoticon}
       />
 
       <span className="aim-toolbar__spacer" />

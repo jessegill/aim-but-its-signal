@@ -18,6 +18,9 @@ export const REQUEST_CHANNELS = [
   'im:markRead',
   'im:setTyping',
 
+  'dialog:pickAttachments',
+  'attachment:open',
+
   'roster:get',
   'chats:get',
   'conversations:get',

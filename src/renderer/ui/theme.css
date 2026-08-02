@@ -717,6 +717,35 @@
   color: var(--xp-face-shadow);
 }
 
+/* The toolbar's letterform buttons: A for colour, A/A/A for size, B I U.
+   Serif and bold, the way a 2003 formatting bar drew them. */
+.aim-fmt__letter {
+  font-family: 'Times New Roman', Georgia, serif;
+  font-weight: bold;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* The background-colour button: the letter sits on a chip of the colour. */
+.aim-fmt__letter--onchip {
+  padding: 0 2px;
+  border: 1px solid #5a5a5a;
+}
+
+/* "link" is a word, not a glyph — AIM drew it as literal blue underlined text. */
+.aim-fmt__link {
+  width: auto;
+  padding: 0 4px;
+  font-family: var(--aim-font-ui);
+  font-size: var(--size-ui);
+  color: #0000c0;
+  text-decoration: underline;
+}
+
+.aim-fmt__link[disabled] {
+  color: var(--xp-face-shadow);
+}
+
 .aim-toolbar__btn--wide {
   width: auto;
   padding: 0 6px;
@@ -1074,6 +1103,133 @@
   width: 100%;
   font-family: var(--aim-font-msg);
   font-size: var(--size-msg);
+}
+
+/* Files staged for the next send. Reuses the message log's chip so a file reads the same
+   before and after it is sent. */
+.aim-im__pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aim-im__pending-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aim-im__pending-remove {
+  margin-left: 2px;
+  padding: 0 3px;
+  font-family: var(--aim-font-ui);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: default;
+}
+
+.aim-im__pending-remove:hover {
+  color: #000;
+  border-color: var(--xp-chrome);
+  background: #f2f0e4;
+}
+
+/* The emoji picker: modern glyphs, 2003 chrome. Drops below the toolbar. */
+.aim-emoji {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--xp-face);
+  border-bottom: 1px solid #b8b4a4;
+}
+
+.aim-emoji__tabs {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 3px 0;
+  border-bottom: 1px solid #b8b4a4;
+}
+
+.aim-emoji__tab {
+  width: 22px;
+  height: 19px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  background: transparent;
+  border: 2px outset transparent;
+  cursor: default;
+}
+
+.aim-emoji__tab:hover {
+  border-color: var(--xp-chrome);
+  background: #f2f0e4;
+}
+
+.aim-emoji__tab--on {
+  border: 2px inset var(--xp-chrome);
+  background: #dedbc9;
+}
+
+.aim-emoji__tabspacer {
+  flex: 1 1 auto;
+}
+
+.aim-emoji__close {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-family: var(--aim-font-ui);
+  font-size: 9px;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: default;
+}
+
+.aim-emoji__close:hover {
+  color: #000;
+  border-color: var(--xp-chrome);
+  background: #f2f0e4;
+}
+
+/* Fixed height so opening the picker cannot shove the composer off the window. */
+.aim-emoji__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 24px);
+  gap: 1px;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 3px;
+}
+
+.aim-emoji__btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  background: transparent;
+  border: 2px outset transparent;
+  cursor: default;
+}
+
+.aim-emoji__btn:hover {
+  border-color: var(--xp-chrome);
+  background: #f2f0e4;
+}
+
+.aim-emoji__btn:active {
+  border: 2px inset var(--xp-chrome);
+  background: #dedbc9;
 }
 
 .aim-im__actions {

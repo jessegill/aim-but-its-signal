@@ -8,9 +8,10 @@
  * macOS / Apple Silicon only, minimum macOS 15.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 
 import { WINDOW_CONTROL_CHANNELS } from '../preload/channels';
+import { ATTACHMENT_SCHEME } from '@shared/types';
 import { AppService } from './service.ts';
 import { registerIpc } from './ipc.ts';
 
@@ -90,6 +91,27 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
+/**
+ * The attachment scheme, declared before the app is ready because that is the only point at
+ * which a scheme's privileges can be set.
+ *
+ * A thumbnail used to be an `<img src="file://…">`. That works in a packaged build, whose
+ * renderer is itself a `file://` document, and is **blocked in dev**, where the renderer is
+ * served from `http://localhost:5173` and Chromium refuses a `file://` subresource from an
+ * `http://` origin. So images rendered in the packaged app and silently vanished under
+ * `npm run dev` — the same class of dev/packaged divergence that hid three bugs until the first
+ * packaged launch (see docs/STATE.md).
+ *
+ * A scheme is also strictly safer than `file://`: it is resolved from the message row, so a URL
+ * cannot name a file, and it can serve nothing outside the attachment cache.
+ */
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: ATTACHMENT_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
+]);
+
 hardenWebContents();
 
 app.on('second-instance', () => {
@@ -104,6 +126,7 @@ void app.whenReady().then(() => {
     // reliably available before the app is ready — hence construction here rather than at import.
     service = new AppService();
     registerIpc(service);
+    service.serveAttachments();
     service.start();
 
     // The buddy list opens immediately; the service swaps in the sign-on window if it turns out

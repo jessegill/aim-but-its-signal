@@ -14,7 +14,7 @@ Phases 1–5 are written, tested and green, the app runs against the live accoun
 conversations work.
 
 `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`, `npm test`
-(103 tests) all pass, `npm run package` produces `release/AIMgnal-0.1.0-arm64.dmg` (117 MB), and
+(123 tests) all pass, `npm run package` produces `release/AIMgnal-0.1.0-arm64.dmg` (117 MB), and
 that packaged build has been launched from Finder: buddy list, live group chat rooms with named
 members, and the daemon resolved from Homebrew. The first launch found four bugs no test could
 have, and the first *packaged* launch found three more (both lists below).
@@ -112,6 +112,52 @@ from `buddy_groups` and the two are never joined; the roster is people (SPEC §6
 place. Rooms get their own fixed section in the buddy list, below the user's own groups, so a
 room can never be dragged into one.
 
+**Main refuses any attachment path it did not vend.** The picker records every path it hands a
+renderer; `im:send` rejects anything else. Without that ledger the attachments argument is an
+arbitrary-file-*read* primitive — a compromised renderer could name any file on the disk and
+have main mail it to a contact, and it would look like an ordinary send from every angle.
+
+**A file the user sends is copied into the cache; their original is never touched.**
+`AttachmentCache.adopt` is deliberately separate from `ingest` for this: `ingest` shreds its
+source because that source is the daemon's scratch copy, and doing the same to a document in the
+user's own folder would be unrecoverable. The copy is what the sender's own history points at,
+which is also what puts a sent file inside the expiry sweep — Signal never syncs a message back
+to the device that sent it, so without the copy there would be no record here at all.
+
+**Opening an attachment on an expiring message warns, then allows.** Refusing would make a
+legitimate file unreachable on the machine it was sent to and push the user to screenshot it.
+Allowing silently would weaken the disappearing-message promise without the person relying on it
+being told. So the warning names the actual leak — Preview's recents, Quick Look's thumbnail
+cache — and its "don't warn again" is session-scoped and never persisted.
+
+**The formatting toolbar is AIM's icon strip, not a set of dropdowns.** Colour, size, style,
+inserts — four groups, in AIM's order, no font/size menus and no palette of colour chips. The
+controls the protocol cannot carry (colour, size, underline) are marked by hover text rather
+than greyed out: they were greyed while clicking one changed a state object nothing read, and an
+inert button is better greyed than live. They now restyle the composer, so they are honest.
+
+**The smiley button inserts Unicode emoji, not `:-)`.** AIM's own menu inserted text and each
+end drew its own graphic — era-correct, and not what ships, because it is not what the other end
+sees: a Signal recipient's phone renders 🙂, so the picker offers 🙂. A period-accurate control
+whose output nobody else's client understands is a costume, not a feature. The chrome around the
+grid is still 2003; it is the glyphs that are modern, because the glyphs are what travels.
+
+**`app.showEmojiPanel()` does not work here and was removed.** The macOS system panel is never
+presented when the focused field is a `<textarea>` inside a `sandbox: true` renderer. The channel
+is gone rather than left as a button that silently does nothing — which is how it was found.
+
+**Inline attachment images are served on a custom scheme, not `file://`.** A `file://` subresource
+loads from a packaged renderer (itself a `file://` document) and is blocked in dev, where the
+renderer comes from `http://localhost:5173` — so thumbnails rendered when packaged and silently
+vanished under `npm run dev`. `aimgnal-attachment://` behaves identically in both, and follows the
+same rule as `attachment:open`: the URL carries **ids, not a path**, main resolves the path from
+the message row, and nothing outside the cache can be served.
+
+**Chat-room colours are hashed from the ACI, not assigned by list position.** Position-based
+assignment would re-tint everyone below a member who left, changing colours throughout a
+scrollback the user had already learned to read. The cost is collisions past twelve members,
+which is a legible failure — the names are still spelled out on every line.
+
 ---
 
 ## Bugs real traffic found that source-reading did not
@@ -174,6 +220,25 @@ the Dock, alive, with no window and no explanation.
    explain a failure was computed and discarded. The service now logs it, and a throw during
    start-up raises a dialog instead of leaving a windowless process.
 
+## The bug that was visible only in *dev*
+
+The mirror image of the section above, and worth its own heading because the lesson is the pair,
+not either half.
+
+**Inline attachment thumbnails never rendered under `npm run dev`.** `MessageLog` built
+`<img src="file://…">`. A packaged renderer is itself a `file://` document and loads that fine; a
+dev renderer is served from `http://localhost:5173`, and Chromium refuses a `file://` subresource
+from an `http://` origin. So the feature worked in the build nobody develops against and was
+broken in the one everybody does — silently, with no console error the app surfaces.
+
+Fixed with the `aimgnal-attachment://` scheme, which behaves the same in both and is strictly
+tighter than `file://`: the URL carries ids, main resolves the path from the message row, and
+nothing outside the attachment cache can be served.
+
+Three bugs hid until the first packaged launch; this one hid until the first dev launch *after*
+a packaged one. **Neither build is the real one.** A change to how a renderer loads anything off
+disk has to be tried in both.
+
 ## Bugs the first launch found
 
 Four more, all at boundaries the tests stub out. Fixed in `d574a62`; the detail is in that
@@ -195,10 +260,12 @@ emission killed startup, and window geometry was written to a closed database on
 | `src/main/ipc.ts` | Thin handlers, every argument validated |
 | `src/main/store/signal-groups.ts` | Signal group conversations and their membership |
 | `src/main/store/shelves.ts` | Pinned / archived state, keyed by conversation |
-| `src/main/store/**` | Encrypted SQLite, expiry, outbound queue, 83 tests |
+| `src/main/store/**` | Encrypted SQLite, expiry, outbound queue, attachment cache |
 | `src/renderer/ui/**` | AIM 5.1 components + `showcase.html` (open directly in a browser) |
+| `src/renderer/ui/senderColors.ts` | Per-member colour in chat rooms, hashed from the ACI |
+| `src/renderer/ui/emoji.ts` | The emoji the smiley button offers. Unicode, not `:-)` |
 | `src/renderer/{buddylist,im,signon}/**` | The three window apps |
-| `src/shared/types.ts` | IPC surface and domain types |
+| `src/shared/types.ts` | IPC surface, domain types, and the `aimgnal-attachment://` URL |
 
 ---
 
@@ -206,8 +273,9 @@ emission killed startup, and window geometry was written to a closed database on
 
 Decisions, not typing:
 
-- **No file picker, no attachment-open, no safety-number-verify UI.** The affordances render and
-  name what is missing.
+- **No safety-number-verify UI.** The affordance renders and names what is missing. The file
+  picker and attachment-open are wired now, so this is the last of the three — and the last
+  "not wired yet" notice left in the IM window.
 - **Group membership changes are not events.** Someone joining or leaving is only noticed at the
   next `listGroups` sync (bring-up, or the first message from an unknown group). There is no
   "X has entered the room" line.
@@ -217,7 +285,8 @@ Decisions, not typing:
   `openOnIncoming` opened a chat room whose log then read "No messages yet", even though an
   arriving message is what opened it. The member list and title were correct, so this is the
   message read path, not the group. Not diagnosed.
-- **Formatting toolbar is decorative** — `im:send` takes a plain body.
+- **Formatting stops at the composer** — the toolbar restyles the input pane, but `im:send` takes
+  a plain body and Signal's ranged styling is unused.
 - **`group:reorder` semantics** — the renderer sends a desired 0-based index and expects main to
   re-index siblings. Undefined in the contract.
 - **Code signing / notarization is off**, with the exact block written as a comment in
@@ -228,13 +297,21 @@ Decisions, not typing:
 
 ## Running it
 
-**The capture session and the app cannot run at the same time** — signal-cli locks the account
-data directory, and whichever starts second fails to acquire it. Kill any stray daemon first:
+**Only one thing can hold the account at a time** — signal-cli locks the account data
+directory, and whichever starts second fails to acquire it. That covers the capture session, a
+`npm run dev` run, *and* a packaged AIMgnal still open from earlier: the packaged app spawns its
+own daemon on the same socket. Check before launching, and kill any stray:
 
 ```sh
+pgrep -fl 'signal-cli|AIMgnal'
 pkill -f 'signal-cli.*daemon'
 pkill -f capture-envelopes
 ```
+
+**A main-process change needs a real restart, not a reload.** electron-vite hot-reloads renderers
+only; the main bundle is built once at start. Anything that runs before `app.whenReady()` — the
+`aimgnal-attachment://` scheme registration, in particular — will not exist in a running process
+no matter how many times its file is saved.
 
 Then:
 
@@ -249,6 +326,12 @@ daemon's first startup to be slow — it is a JVM native image doing account set
 Confirmed working against the live account: bring-up, `listAccounts` → `listContacts` self
 resolution, roster load (73 contacts), group sync (43 groups), and the buddy list rendering
 both sections.
+
+**Sending and opening files and chat-room colours are written and green but have not been
+clicked.** See the top of `docs/ROADMAP.md` for what each one decided and "Confirming these by
+hand" for what to try first. Inline thumbnails need checking in the packaged build as well as in
+dev: they were broken in exactly one of the two before the custom scheme, which is the failure
+mode that hid three bugs until the first packaged launch.
 
 Still unexercised live, in order of likelihood of being wrong:
 

@@ -1120,62 +1120,113 @@ Multi-line input. Inset border, white face, no rounding anywhere.</textarea>
                   </div>
                 </div>
 
+                <!-- AIM 5.1's icon strip, in AIM's order: colour, size, style, inserts.
+                     No font dropdown, no size dropdown, no palette of colour chips.
+                     Colour, size and underline are greyed because Signal's wire format
+                     carries none of them (see FormattingToolbar.tsx). -->
                 <div class="aim-toolbar aim-fmt" role="toolbar">
-                  <span class="aim-select aim-select--disabled aim-fmt__font">
-                    <select class="aim-select__native" disabled>
-                      <option>Tahoma</option>
-                    </select>
-                    <span class="aim-select__arrow" data-g="arrow"></span>
-                  </span>
-                  <span class="aim-select aim-select--disabled aim-fmt__size">
-                    <select class="aim-select__native" disabled>
-                      <option>11</option>
-                    </select>
-                    <span class="aim-select__arrow" data-g="arrow"></span>
-                  </span>
-                  <span class="aim-toolbar__sep"></span>
-                  <button class="aim-toolbar__btn aim-toolbar__btn--on" title="Bold">
-                    <b>B</b>
+                  <button
+                    class="aim-toolbar__btn"
+                    title="Text colour &mdash; shown here only; the protocol carries no colour information"
+                  >
+                    <span class="aim-fmt__letter" style="color: #0000c0">A</span>
                   </button>
+                  <button
+                    class="aim-toolbar__btn"
+                    title="Background colour &mdash; shown here only; the protocol carries no colour information"
+                  >
+                    <span
+                      class="aim-fmt__letter aim-fmt__letter--onchip"
+                      style="color: #0000c0; background: #ffc"
+                      >A</span
+                    >
+                  </button>
+                  <span class="aim-toolbar__sep"></span>
+                  <button class="aim-toolbar__btn" title="Small text">
+                    <span class="aim-fmt__letter" style="font-size: 9px">A</span>
+                  </button>
+                  <button class="aim-toolbar__btn" title="Medium text">
+                    <span class="aim-fmt__letter" style="font-size: 12px">A</span>
+                  </button>
+                  <button class="aim-toolbar__btn" title="Large text">
+                    <span class="aim-fmt__letter" style="font-size: 15px">A</span>
+                  </button>
+                  <span class="aim-toolbar__sep"></span>
+                  <button class="aim-toolbar__btn" title="Bold"><b>B</b></button>
                   <button class="aim-toolbar__btn" title="Italic"><i>I</i></button>
                   <button class="aim-toolbar__btn" title="Underline"><u>U</u></button>
-                  <button class="aim-toolbar__btn" title="Strikethrough"><s>S</s></button>
-                  <button class="aim-toolbar__btn" title="Monospace">
-                    <span style="font-family: var(--aim-font-mono); font-size: 11px">M</span>
-                  </button>
                   <span class="aim-toolbar__sep"></span>
+                  <button class="aim-toolbar__btn aim-fmt__link" title="Insert link">link</button>
+                  <button class="aim-toolbar__btn" title="Attach a picture">
+                    <span data-g="picture"></span>
+                  </button>
+                  <button class="aim-toolbar__btn" title="Attach a file">
+                    <span data-g="envelope"></span>
+                  </button>
                   <button
                     class="aim-toolbar__btn"
-                    disabled
-                    title="Not transmitted — the protocol carries no colour information"
+                    title="Insert emoticon &mdash; AIM's own set, sent as text"
                   >
-                    <span class="aim-fmt__stack"
-                      ><b>A</b><span class="aim-fmt__swatch" style="background: #000"></span
-                    ></span>
-                  </button>
-                  <button class="aim-toolbar__btn" disabled title="Not transmitted">
-                    <span class="aim-fmt__stack"
-                      ><b style="background: #ffc; padding: 0 2px">A</b
-                      ><span class="aim-fmt__swatch" style="background: #fff"></span
-                    ></span>
-                  </button>
-                  <span class="aim-toolbar__sep"></span>
-                  <button
-                    class="aim-toolbar__btn"
-                    title="Insert emoticon"
-                    style="width: 28px; font-family: var(--aim-font-ui); font-size: 11px"
-                  >
-                    :-)
-                  </button>
-                  <button class="aim-toolbar__btn" title="Quote selection" style="font-size: 13px">
-                    &#10077;
-                  </button>
-                  <button class="aim-toolbar__btn" title="Attach file" style="font-size: 12px">
-                    &#128206;
+                    <span data-g="smiley"></span>
                   </button>
                 </div>
 
+                <!-- The emoji picker. Unicode, not `:-)`: AIM's own menu inserted text and
+                     each end drew its own graphic, but a Signal recipient's phone renders 🙂,
+                     so that is what the picker offers. Modern glyphs, 2003 chrome. -->
+                <div class="aim-emoji" role="group" aria-label="Emoji">
+                  <div class="aim-emoji__tabs" role="tablist">
+                    <button class="aim-emoji__tab aim-emoji__tab--on" title="Smileys">
+                      &#128512;
+                    </button>
+                    <button class="aim-emoji__tab" title="Gestures &amp; people">&#128077;</button>
+                    <button class="aim-emoji__tab" title="Hearts &amp; symbols">
+                      &#10084;&#65039;
+                    </button>
+                    <button class="aim-emoji__tab" title="Animals &amp; nature">&#128054;</button>
+                    <button class="aim-emoji__tab" title="Food &amp; drink">&#127823;</button>
+                    <button class="aim-emoji__tab" title="Activities &amp; travel">&#9917;</button>
+                    <button class="aim-emoji__tab" title="Objects">&#8986;</button>
+                    <span class="aim-emoji__tabspacer"></span>
+                    <button class="aim-emoji__close" aria-label="Close emoji picker">
+                      &#10005;
+                    </button>
+                  </div>
+                  <div class="aim-emoji__grid" role="tabpanel">
+                    <button class="aim-emoji__btn">&#128512;</button>
+                    <button class="aim-emoji__btn">&#128515;</button>
+                    <button class="aim-emoji__btn">&#128516;</button>
+                    <button class="aim-emoji__btn">&#128513;</button>
+                    <button class="aim-emoji__btn">&#128518;</button>
+                    <button class="aim-emoji__btn">&#128517;</button>
+                    <button class="aim-emoji__btn">&#129315;</button>
+                    <button class="aim-emoji__btn">&#128514;</button>
+                    <button class="aim-emoji__btn">&#128578;</button>
+                    <button class="aim-emoji__btn">&#128579;</button>
+                    <button class="aim-emoji__btn">&#128521;</button>
+                    <button class="aim-emoji__btn">&#128522;</button>
+                    <button class="aim-emoji__btn">&#128519;</button>
+                    <button class="aim-emoji__btn">&#129392;</button>
+                    <button class="aim-emoji__btn">&#128525;</button>
+                    <button class="aim-emoji__btn">&#129321;</button>
+                    <button class="aim-emoji__btn">&#128536;</button>
+                    <button class="aim-emoji__btn">&#128523;</button>
+                    <button class="aim-emoji__btn">&#128540;</button>
+                    <button class="aim-emoji__btn">&#129322;</button>
+                  </div>
+                </div>
+
                 <div class="aim-im__compose">
+                  <ul class="aim-im__pending" aria-label="Files to send">
+                    <li class="aim-msg__chip" title="quarterly-plan.pdf">
+                      <span data-g="attachment"></span>
+                      <span class="aim-im__pending-name">quarterly-plan.pdf</span>
+                      <span class="aim-msg__chip-meta">1.2 MB</span>
+                      <button class="aim-im__pending-remove" aria-label="Remove quarterly-plan.pdf">
+                        &#10005;
+                      </button>
+                    </li>
+                  </ul>
                   <textarea class="aim-input aim-input--textarea aim-im__input">
 sounds good, sending now</textarea>
                   <div class="aim-im__actions">
@@ -1263,25 +1314,36 @@ sounds good, sending now</textarea>
                 <div class="aim-im__logwrap">
                   <div class="aim-im__log aim-log">
                     <!-- Every line names its own sender. In a room there is no "the other
-                         person" to attribute to (SPEC.md §8). -->
+                         person" to attribute to (SPEC.md §8).
+
+                         Each member also gets their own colour, derived from their ACI so it
+                         never moves — see senderColors.ts. "Theirs is blue" carries enough in a
+                         1:1 window and nothing at all in a room of a dozen people. Own lines
+                         stay red: that is the one colour the user already reads as themselves. -->
                     <div class="aim-msg">
                       <div>
                         <span class="aim-msg__time">(9:02:11 PM)</span>
-                        <span class="aim-msg__sender aim-msg__sender--them">Dana:</span>
+                        <span class="aim-msg__sender aim-msg__sender--them" style="color: #1a4f9c"
+                          >Dana:</span
+                        >
                         <span class="aim-msg__body">saturday still on?</span>
                       </div>
                     </div>
                     <div class="aim-msg">
                       <div>
                         <span class="aim-msg__time">(9:02:40 PM)</span>
-                        <span class="aim-msg__sender aim-msg__sender--them">Marcus:</span>
+                        <span class="aim-msg__sender aim-msg__sender--them" style="color: #14713f"
+                          >Marcus:</span
+                        >
                         <span class="aim-msg__body">i can drive, room for three</span>
                       </div>
                     </div>
                     <div class="aim-msg">
                       <div>
                         <span class="aim-msg__time">(9:03:02 PM)</span>
-                        <span class="aim-msg__sender aim-msg__sender--them">3f1c9a2b:</span>
+                        <span class="aim-msg__sender aim-msg__sender--them" style="color: #8a4b00"
+                          >3f1c9a2b:</span
+                        >
                         <span class="aim-msg__body">who is this again</span>
                       </div>
                     </div>
@@ -1295,23 +1357,28 @@ sounds good, sending now</textarea>
                     </div>
                   </div>
 
-                  <!-- Member list. No presence dots: Signal has none (SPEC.md §7). -->
+                  <!-- Member list. No presence dots: Signal has none (SPEC.md §7).
+                       Names carry the same colour their lines do, so the list reads as a legend
+                       for the conversation rather than a second, unrelated roster. -->
                   <div class="aim-room">
                     <div class="aim-room__title">Members (4)</div>
                     <ul class="aim-room__list">
                       <li class="aim-room__member">
-                        <span data-g="room-11"></span><span class="aim-room__name">Dana</span
+                        <span data-g="room-11"></span
+                        ><span class="aim-room__name" style="color: #1a4f9c">Dana</span
                         ><span class="aim-room__admin">&#9733;</span>
                       </li>
                       <li class="aim-room__member">
-                        <span data-g="room-11"></span><span class="aim-room__name">Marcus</span>
+                        <span data-g="room-11"></span
+                        ><span class="aim-room__name" style="color: #14713f">Marcus</span>
                       </li>
                       <li class="aim-room__member aim-room__member--self">
                         <span data-g="room-11"></span
                         ><span class="aim-room__name">CoolBuddy2003</span>
                       </li>
                       <li class="aim-room__member">
-                        <span data-g="room-11"></span><span class="aim-room__name">3f1c9a2b</span>
+                        <span data-g="room-11"></span
+                        ><span class="aim-room__name" style="color: #8a4b00">3f1c9a2b</span>
                       </li>
                     </ul>
                   </div>
@@ -1556,7 +1623,35 @@ sounds good, sending now</textarea>
             .join('')}</svg>`,
       };
 
+      // Formatting-toolbar marks. Kept in step with icons.tsx by hand, like the rest of this
+      // page — the showcase is a static mirror of the library, not a build of it.
+      const FMT_SVG = {
+        picture: () =>
+          `<svg viewBox="0 0 14 14" width="14" height="14" style="display:block">
+             <rect x="1" y="2" width="12" height="10" fill="#FFFFFF" stroke="#3A3A3A"/>
+             <rect x="2" y="3" width="10" height="8" fill="#BFD8EE"/>
+             <path d="M2 11 L5.5 6.5 L8 9 L10 7 L12 11 Z" fill="#3F7A3F"/>
+             <rect x="9" y="4" width="2" height="2" fill="#E8C020"/>
+           </svg>`,
+        envelope: () =>
+          `<svg viewBox="0 0 14 14" width="14" height="14" style="display:block">
+             <rect x="1" y="3" width="12" height="9" fill="#F0D890" stroke="#7A6420"/>
+             <path d="M1 3 L7 8 L13 3" fill="none" stroke="#7A6420" stroke-width="1"/>
+             <path d="M1 12 L5.5 7.5 M13 12 L8.5 7.5" fill="none" stroke="#B49A48" stroke-width="0.8"/>
+           </svg>`,
+        smiley: () =>
+          `<svg viewBox="0 0 14 14" width="14" height="14" style="display:block">
+             <circle cx="7" cy="7" r="6" fill="#FFD630" stroke="#8A6A00"/>
+             <circle cx="5" cy="5.5" r="1" fill="#000000"/>
+             <circle cx="9" cy="5.5" r="1" fill="#000000"/>
+             <path d="M4 8.5 A3.4 3.4 0 0 0 10 8.5" fill="none" stroke="#000000" stroke-width="1.1"/>
+           </svg>`,
+      };
+
       const GLYPHS = {
+        picture: FMT_SVG.picture,
+        envelope: FMT_SVG.envelope,
+        smiley: FMT_SVG.smiley,
         min: SVG.min,
         max: SVG.max,
         close: SVG.close,

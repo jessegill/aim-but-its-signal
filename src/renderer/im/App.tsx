@@ -25,10 +25,12 @@ import * as React from 'react';
 import type { JSX } from 'react';
 
 import type {
+  Attachment,
   Buddy,
   ConnectionState,
   GroupChat,
   Message,
+  PickedFile,
   ReceiptState,
   SelfAccount,
 } from '@shared/types';
@@ -107,6 +109,12 @@ export function App({ conversationId }: AppProps): JSX.Element {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(hasBridge() ? null : BRIDGE_MISSING);
   const [notice, setNotice] = React.useState<string | null>(null);
+  /**
+   * Files chosen but not yet sent. Paths only ever travel picker → here → `im:send`; main
+   * refuses any path it did not itself vend, so this list is a set of references to files the
+   * user has already chosen, not names this window could invent.
+   */
+  const [pendingFiles, setPendingFiles] = React.useState<PickedFile[]>([]);
 
   const typingTimeout = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingSent = React.useRef(false);
@@ -279,9 +287,19 @@ export function App({ conversationId }: AppProps): JSX.Element {
     (body: string): void => {
       if (conversationId === null) return;
       setTyping(false);
+      // Cleared optimistically along with the draft: the composer emptying is what tells the
+      // user the send happened, and leaving the chips behind on a slow send invites a second
+      // click that would attach the same files twice. A failure restores them below.
+      const files = pendingFiles;
+      setPendingFiles([]);
       void (async () => {
         try {
-          const { messageId } = await invoke('im:send', conversationId, body);
+          const { messageId } = await invoke(
+            'im:send',
+            conversationId,
+            body,
+            files.map((file) => file.path)
+          );
           setError(null);
           // A placeholder for the case where main's own copy has not landed yet.
           //
@@ -306,25 +324,76 @@ export function App({ conversationId }: AppProps): JSX.Element {
                   editedAt: null,
                   quote: null,
                   reactions: [],
+                  // The authoritative row that replaces this one carries the real attachment
+                  // records, with the cached paths main wrote. Inventing them here would mean
+                  // guessing at paths this window is not allowed to know.
                   attachments: [],
-                  kind: 'text',
+                  kind: files.length > 0 ? 'attachment' : 'text',
                   receipt: 'sending',
                 })
           );
         } catch (err) {
           setError(describeFailure('im:send', err));
+          // The message did not go. Put the files back rather than silently dropping a send the
+          // user still believes is staged.
+          setPendingFiles((prev) => (prev.length === 0 ? files : [...files, ...prev]));
         }
       })();
     },
-    [conversationId, setTyping, self]
+    [conversationId, setTyping, self, pendingFiles]
   );
+
+  /* --- attachments ------------------------------------------------------------ */
+
+  const attachOfKind = React.useCallback((kind: 'any' | 'image'): void => {
+    void (async () => {
+      try {
+        const { files, rejected } = await invoke('dialog:pickAttachments', kind);
+        if (files.length > 0) {
+          // De-duplicated by path: picking the same file twice is a slip, not an instruction to
+          // send two copies of it.
+          setPendingFiles((prev) => {
+            const seen = new Set(prev.map((file) => file.path));
+            return [...prev, ...files.filter((file) => !seen.has(file.path))];
+          });
+        }
+        setNotice(
+          rejected.length === 0
+            ? null
+            : `Not attached — ${rejected.map((f) => `${f.name} (${f.reason})`).join(', ')}.`
+        );
+      } catch (err) {
+        setError(describeFailure('dialog:pickAttachments', err));
+      }
+    })();
+  }, []);
+
+  const attach = React.useCallback(() => attachOfKind('any'), [attachOfKind]);
+  const attachImage = React.useCallback(() => attachOfKind('image'), [attachOfKind]);
+
+  const removePendingFile = React.useCallback((path: string): void => {
+    setPendingFiles((prev) => prev.filter((file) => file.path !== path));
+  }, []);
+
+  const openAttachment = React.useCallback((attachment: Attachment, messageId: string): void => {
+    void (async () => {
+      try {
+        const { opened, reason } = await invoke('attachment:open', messageId, attachment.id);
+        // A null reason on a refusal is the user cancelling the disappearing-message warning.
+        // They know what they did; saying it back to them would be noise.
+        setNotice(opened || reason === null ? null : reason);
+      } catch (err) {
+        setError(describeFailure('attachment:open', err));
+      }
+    })();
+  }, []);
 
   /* --- menus ------------------------------------------------------------------ */
 
   const menus: MenuSpec[] = React.useMemo(() => {
     const built = imMenus({
       onCloseWindow: windowChrome.close,
-      onSendFile: () => setNotice(ATTACH_NOTICE),
+      onSendFile: attach,
       onSafetyNumber: () => setNotice(SAFETY_NOTICE),
     });
     // Slots needing a main-process capability no channel provides (saving a log, clipboard,
@@ -337,7 +406,7 @@ export function App({ conversationId }: AppProps): JSX.Element {
           : { ...item, disabled: item.disabled === true || item.onSelect === undefined }
       ),
     }));
-  }, []);
+  }, [attach]);
 
   /* --- render ------------------------------------------------------------------ */
 
@@ -427,8 +496,11 @@ export function App({ conversationId }: AppProps): JSX.Element {
       sendDisabledReason={offline ? CONNECTION_LABELS[connection].detail : undefined}
       formatting={formatting}
       onFormattingChange={setFormatting}
-      onAttach={() => setNotice(ATTACH_NOTICE)}
-      onOpenAttachment={() => setNotice(OPEN_ATTACHMENT_NOTICE)}
+      onAttach={attach}
+      onAttachImage={attachImage}
+      pendingFiles={pendingFiles}
+      onRemovePendingFile={removePendingFile}
+      onOpenAttachment={openAttachment}
       onVerifySafetyNumber={() => setNotice(SAFETY_NOTICE)}
       onMinimize={windowChrome.minimize}
       onMaximize={windowChrome.maximize}
@@ -437,13 +509,8 @@ export function App({ conversationId }: AppProps): JSX.Element {
   );
 }
 
-/* These three actions all need a main-process capability that no channel in
-   src/shared/types.ts exposes yet. Saying so is better than a button that does nothing. */
-const ATTACH_NOTICE =
-  'Attaching a file needs a file picker in the main process — a renderer cannot browse the ' +
-  'disk (SPEC.md §3). Not wired yet.';
-const OPEN_ATTACHMENT_NOTICE =
-  'Opening an attachment needs the main process to hand it to the system — not wired yet.';
+/* Still needs a main-process capability that no channel in src/shared/types.ts exposes yet.
+   Saying so is better than a button that does nothing. */
 const SAFETY_NOTICE =
   'Safety numbers come from the messaging service and need a main-process channel to fetch ' +
   'and verify them. Not wired yet — verify on your phone in the meantime.';

@@ -11,8 +11,9 @@
  * already acknowledged is gone from the server too.
  */
 
-import { app } from 'electron';
+import { app, dialog, net, protocol, shell } from 'electron';
 
+import { ATTACHMENT_SCHEME, parseAttachmentUrl } from '@shared/types';
 import type {
   Buddy,
   ConnectionState,
@@ -25,7 +26,8 @@ import type {
   SelfAccount,
 } from '@shared/types';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { SignalDaemon, defaultSocketPath, signalCliAttachmentsDir } from './daemon.ts';
 import { RpcClient } from './rpc.ts';
@@ -627,12 +629,33 @@ export class AppService {
    * rather than a message the user believes they sent. It doubles as the echo-protection
    * ledger (SPEC.md §8).
    */
+  /**
+   * Absolute paths this process has handed to a renderer from the file picker.
+   *
+   * `im:send` will not attach a path that is not in here. Without the ledger the attachment
+   * argument is an arbitrary-file-read primitive: a renderer that had been compromised could
+   * name `~/.ssh/id_ed25519` and have the main process mail it to a contact, and every part of
+   * that would look like an ordinary send. Bounded because the picker is a human action; entries
+   * are kept for the session so a file can be attached again without re-picking it.
+   */
+  private readonly vendedAttachmentPaths = new Set<string>();
+
+  /** Records a path the picker returned, making it eligible to be attached. */
+  vendAttachmentPath(path: string): void {
+    this.vendedAttachmentPaths.add(resolve(path));
+  }
+
   async send(
     conversationId: ConversationId,
     body: string,
     attachments?: string[]
   ): Promise<string> {
     if (this.account === null) throw new Error('not linked');
+    for (const path of attachments ?? []) {
+      if (this.vendedAttachmentPaths.has(resolve(path))) continue;
+      // Deliberately refuses rather than sending. See vendedAttachmentPaths.
+      throw new Error('attachment was not chosen with the file picker');
+    }
     // Checked *before* the RPC call, not after. Validating anything post-send means the message
     // has already left for a real contact by the time we refuse it — the user sees a failure,
     // retries, and sends twice.
@@ -652,7 +675,9 @@ export class AppService {
       id: queueId,
       conversationId,
       recipientId: conversationId,
-      body,
+      // A file sent with no caption has no body at all, rather than an empty string that would
+      // render as a blank line in the log.
+      body: body === '' ? null : body,
       attachments: attachments ?? [],
       expiresAt,
     });
@@ -660,7 +685,9 @@ export class AppService {
     this.store.messages.markOutboundSending(row.id);
 
     try {
-      const params: Record<string, unknown> = { account: this.account, message: body };
+      const params: Record<string, unknown> = { account: this.account };
+      // Omitted rather than sent empty: signal-cli treats a present `message` as a text body.
+      if (body !== '') params.message = body;
       // A group id and a recipient are different params; sending both is an error.
       if (isGroupConversation(conversationId)) params.groupId = conversationId;
       else params.recipient = conversationId;
@@ -681,6 +708,149 @@ export class AppService {
       );
       throw error;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Attachments
+  // -------------------------------------------------------------------------
+
+  /**
+   * Serves cached attachment bytes to the renderer for inline thumbnails.
+   *
+   * Must run after `app.whenReady()`; the scheme's privileges are declared before ready, in
+   * index.ts.
+   *
+   * Every rule that governs {@link openAttachment} governs this too, because it is the same
+   * capability with a different consumer: the URL carries **ids, not a path**, the path comes
+   * from the message row, and the result must resolve inside our own cache root. A renderer
+   * cannot name a file, and a row holding a foreign path cannot be used to read one.
+   *
+   * No disappearing-message warning here, deliberately. Rendering a thumbnail inside the app is
+   * not handing the file to another application — nothing leaves, nothing is cached anywhere the
+   * sweep cannot reach, and the log already shows the message. The warning belongs on the
+   * boundary crossing, which is `openAttachment`.
+   */
+  serveAttachments(): void {
+    protocol.handle(ATTACHMENT_SCHEME, async (request) => {
+      const notFound = new Response(null, { status: 404 });
+      const target = parseAttachmentUrl(request.url);
+      if (target === null) return notFound;
+      const { messageId, attachmentId } = target;
+
+      const message = this.store.messages.getMessage(messageId);
+      const attachment = message?.attachments.find((a) => a.id === attachmentId);
+      // A null path, or view-once media that somehow reached a row, serves nothing.
+      if (attachment === undefined || attachment.viewOnce || attachment.path === null) {
+        return notFound;
+      }
+
+      const path = resolve(attachment.path);
+      const cacheRoot = resolve(this.store.attachments.dir);
+      if (path !== cacheRoot && !path.startsWith(cacheRoot + sep)) return notFound;
+      if (!existsSync(path)) return notFound;
+
+      return await net.fetch(pathToFileURL(path).toString());
+    });
+  }
+
+  /**
+   * True once the user has accepted the disappearing-message warning for this run.
+   *
+   * Session-scoped on purpose: the warning is about a property of the *app boundary*, not of a
+   * particular file, so asking again on every attachment would be nagging rather than
+   * informing. Not persisted — a fresh launch says it once more, which is cheap.
+   */
+  private expiringAttachmentWarningAccepted = false;
+
+  /**
+   * Hands a received attachment to the system, addressed by ids.
+   *
+   * **The path is resolved here, from the message row.** A path supplied by the renderer would
+   * be an arbitrary-file-open primitive; nothing the renderer sends is used to locate the file.
+   * The resolved path is additionally required to be inside our own attachment cache, so a row
+   * that somehow held a foreign path could not be used to open one either.
+   *
+   * ---------------------------------------------------------------------------------------
+   * THE DISAPPEARING-MESSAGE DECISION
+   * ---------------------------------------------------------------------------------------
+   * Attachments on an expiring message are shredded when the timer runs out, and the store goes
+   * to real trouble to make that stick. Handing the file to Preview or QuickLook copies it
+   * somewhere the sweep cannot reach — recents lists, thumbnail caches, autosave.
+   *
+   * Of the three available answers — refuse, warn, or allow silently — this app **warns, then
+   * allows**. Refusing would make a legitimate file unreachable on the machine it was sent to,
+   * which pushes the user to screenshot it instead and is worse for them by every measure.
+   * Allowing silently would weaken a promise the rest of the codebase keeps carefully, without
+   * the person relying on it ever being told. So the guarantee ends at the app boundary, the
+   * user is told exactly that before it happens, and they decide.
+   */
+  async openAttachment(
+    messageId: string,
+    attachmentId: string
+  ): Promise<{ opened: boolean; reason: string | null }> {
+    const message = this.store.messages.getMessage(messageId);
+    if (message === null) {
+      return { opened: false, reason: 'That message is no longer on this computer.' };
+    }
+
+    const attachment = message.attachments.find((candidate) => candidate.id === attachmentId);
+    if (attachment === undefined) {
+      return { opened: false, reason: 'That attachment is no longer on this computer.' };
+    }
+    if (attachment.viewOnce) {
+      // Unreachable — view-once media never reaches the database (three barriers, see
+      // store/attachments.ts). Refused here anyway rather than trusting that.
+      return {
+        opened: false,
+        reason: 'View-once media is never saved here. Open it on your phone.',
+      };
+    }
+    if (attachment.path === null) {
+      return { opened: false, reason: 'That file was never downloaded to this computer.' };
+    }
+
+    const path = resolve(attachment.path);
+    const cacheRoot = resolve(this.store.attachments.dir);
+    if (path !== cacheRoot && !path.startsWith(cacheRoot + sep)) {
+      return { opened: false, reason: 'That file is not in this app’s attachment store.' };
+    }
+    if (!existsSync(path)) {
+      return { opened: false, reason: 'That file is no longer on disk.' };
+    }
+
+    if (message.expiresAt !== null && !this.expiringAttachmentWarningAccepted) {
+      const parent = this.windows.imWindow(message.conversationId);
+      const options = {
+        type: 'warning' as const,
+        buttons: ['Cancel', 'Open Anyway'],
+        defaultId: 0,
+        cancelId: 0,
+        title: 'This message disappears',
+        message: 'Opening this file ends the disappearing-message guarantee.',
+        detail:
+          'This app deletes the file when the timer runs out. Another application cannot be ' +
+          'made to do the same — Preview, Quick Look and the like keep their own copies in ' +
+          'recents and thumbnail caches, and those will outlive the timer.\n\n' +
+          'The message itself still disappears here on schedule.',
+        checkboxLabel: 'Don’t warn me again while the app is running',
+        checkboxChecked: false,
+      };
+      const answer =
+        parent === null
+          ? await dialog.showMessageBox(options)
+          : await dialog.showMessageBox(parent, options);
+
+      if (answer.response !== 1) {
+        return { opened: false, reason: null };
+      }
+      if (answer.checkboxChecked) this.expiringAttachmentWarningAccepted = true;
+    }
+
+    const failure = await shell.openPath(path);
+    if (failure !== '') {
+      return { opened: false, reason: `The system could not open that file: ${failure}` };
+    }
+    return { opened: true, reason: null };
   }
 
   async setTyping(conversationId: ConversationId, isTyping: boolean): Promise<void> {

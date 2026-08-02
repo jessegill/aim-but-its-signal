@@ -267,6 +267,54 @@ export function GlyphSticker({ size = 24 }: { size?: number }) {
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * Formatting-toolbar marks (AIM 5.1's icon strip).
+ *
+ * Drawn from scratch like everything else here — the era's toolbars were 16px
+ * grids with hard edges and a two-tone bevel, which is what these imitate. No
+ * extracted AOL artwork (SPEC.md §9/§10).
+ * ------------------------------------------------------------------------ */
+
+/** Picture / insert-image mark: a framed photo with a horizon and a sun. */
+export function GlyphPicture({ size = 14 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 14 14" style={box(size)} aria-hidden="true">
+      <rect x="1" y="2" width="12" height="10" fill="#FFFFFF" stroke="#3A3A3A" />
+      <rect x="2" y="3" width="10" height="8" fill="#BFD8EE" />
+      <path d="M2 11 L5.5 6.5 L8 9 L10 7 L12 11 Z" fill="#3F7A3F" />
+      <rect x="9" y="4" width="2" height="2" fill="#E8C020" />
+    </svg>
+  );
+}
+
+/** Envelope / send-a-file mark. Flap drawn as two strokes, no curves. */
+export function GlyphEnvelope({ size = 14 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 14 14" style={box(size)} aria-hidden="true">
+      <rect x="1" y="3" width="12" height="9" fill="#F0D890" stroke="#7A6420" />
+      <path d="M1 3 L7 8 L13 3" fill="none" stroke="#7A6420" strokeWidth="1" />
+      <path d="M1 12 L5.5 7.5 M13 12 L8.5 7.5" fill="none" stroke="#B49A48" strokeWidth="0.8" />
+    </svg>
+  );
+}
+
+/**
+ * The classic yellow smiley, for the emoticon palette.
+ *
+ * The square-corner rule governs UI geometry; a face is drawing, not chrome, so
+ * it gets circles for the same reason {@link AppMark} does.
+ */
+export function GlyphSmiley({ size = 14 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 14 14" style={box(size)} aria-hidden="true">
+      <circle cx="7" cy="7" r="6" fill="#FFD630" stroke="#8A6A00" />
+      <circle cx="5" cy="5.5" r="1" fill="#000000" />
+      <circle cx="9" cy="5.5" r="1" fill="#000000" />
+      <path d="M4 8.5 A3.4 3.4 0 0 0 10 8.5" fill="none" stroke="#000000" strokeWidth="1.1" />
+    </svg>
+  );
+}
+
 /** Tombstone / deleted-message mark. */
 export function GlyphTombstone({ size = 11 }: { size?: number }) {
   return (

@@ -88,6 +88,8 @@ export {
 } from './MessageLog';
 export type { MessageLogProps, MessageRowProps, AttachmentViewProps } from './MessageLog';
 
+export { senderColor, SENDER_COLOR_COUNT } from './senderColors';
+
 export { FormattingToolbar } from './FormattingToolbar';
 export type { FormattingToolbarProps, FormattingState } from './FormattingToolbar';
 

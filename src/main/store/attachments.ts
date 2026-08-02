@@ -69,6 +69,14 @@ export interface AttachmentCacheOptions {
   shredSourceAfterIngest?: boolean;
 }
 
+/** One file the user chose, on its way out. */
+export interface OutgoingFile {
+  /** Stable, derived from the message id and position, so re-adopting is a no-op. */
+  id: string;
+  /** Absolute path to the user's own file. */
+  path: string;
+}
+
 export interface AttachmentCache {
   readonly dir: string;
   /**
@@ -76,6 +84,22 @@ export interface AttachmentCache {
    * Returns `null` for view-once media, having shredded the daemon's copy.
    */
   ingest(messageId: string, attachment: Attachment): Attachment | null;
+  /**
+   * Copies files the *user* chose into the cache, under an outgoing message's id.
+   *
+   * Unlike {@link ingest} this **never shreds the source**: that file is the user's own
+   * document sitting in their own folder, not the daemon's scratch copy. Deleting it would be
+   * catastrophic and is not a thing this app is allowed to do.
+   *
+   * A copy is taken rather than the original path being recorded, for the same reason inbound
+   * attachments are copied: the cached copy is the one expiry sweeps and deletions can reach.
+   * A sent file in a disappearing-message conversation has its *cached* copy shredded on the
+   * timer; the user's own original is theirs and is untouched.
+   *
+   * Files that cannot be read are skipped rather than throwing — the message itself has already
+   * been sent by the time this runs, and losing the log line for it would be the worse outcome.
+   */
+  adopt(messageId: string, files: OutgoingFile[]): Attachment[];
   /** Overwrites and unlinks a single file. Safe to call on a path that no longer exists. */
   shred(filePath: string | null | undefined): void;
   /** Shreds every given path, then removes any now-empty per-message directories. */
@@ -83,6 +107,55 @@ export interface AttachmentCache {
   /** Removes everything cached for a message. */
   purgeMessage(messageId: string): void;
 }
+
+/**
+ * Content type from a filename extension.
+ *
+ * Only used for files *we* send. Inbound attachments carry a content type on the envelope and
+ * that one is authoritative; this is a local guess whose only consumer is the message log,
+ * which uses it to decide whether to render a thumbnail. signal-cli sniffs the file itself for
+ * what actually goes on the wire, so a wrong guess here mislabels nothing outside this app.
+ */
+export function guessContentType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase().slice(1);
+  return CONTENT_TYPES[ext] ?? 'application/octet-stream';
+}
+
+const CONTENT_TYPES: Record<string, string> = {
+  bmp: 'image/bmp',
+  gif: 'image/gif',
+  heic: 'image/heic',
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  svg: 'image/svg+xml',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  webp: 'image/webp',
+
+  m4a: 'audio/mp4',
+  mp3: 'audio/mpeg',
+  oga: 'audio/ogg',
+  ogg: 'audio/ogg',
+  wav: 'audio/wav',
+
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+
+  csv: 'text/csv',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  json: 'application/json',
+  md: 'text/markdown',
+  pdf: 'application/pdf',
+  rtf: 'application/rtf',
+  txt: 'text/plain',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  zip: 'application/zip',
+};
 
 export function createAttachmentCache(options: AttachmentCacheOptions): AttachmentCache {
   const shredSourceAfterIngest = options.shredSourceAfterIngest ?? true;
@@ -171,6 +244,47 @@ export function createAttachmentCache(options: AttachmentCacheOptions): Attachme
         path: destination,
         size: attachment.size ?? source.size,
       };
+    },
+
+    adopt(messageId, files) {
+      if (files.length === 0) return [];
+      const target = messageDir(messageId);
+      fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+
+      const adopted: Attachment[] = [];
+      for (const file of files) {
+        let source: fs.Stats;
+        try {
+          source = fs.statSync(file.path);
+        } catch {
+          continue; // Moved or deleted between the picker and the send.
+        }
+        if (!source.isFile()) continue;
+
+        const name = path.basename(file.path);
+        const ext = path.extname(name);
+        const safeId = file.id.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 128);
+        const destination = path.join(target, `${safeId}${ext}`);
+
+        try {
+          fs.copyFileSync(file.path, destination);
+          fs.chmodSync(destination, 0o600);
+        } catch {
+          continue;
+        }
+
+        adopted.push({
+          id: file.id,
+          contentType: guessContentType(name),
+          filename: name,
+          size: source.size,
+          path: destination,
+          viewOnce: false,
+          // Nothing in this app records a voice note; the composer sends files, not recordings.
+          isVoiceNote: false,
+        });
+      }
+      return adopted;
     },
 
     shred,

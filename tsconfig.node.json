@@ -4,7 +4,20 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/preload/**/*.d.ts",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+
+    // Renderer tests, and only the renderer modules they cover.
+    //
+    // Tests execute under node:test like every other test here, so they need `node` types that
+    // renderer source deliberately does not get. The modules themselves are still typechecked
+    // with `types: []` by tsconfig.web.json, which is what actually enforces "a renderer cannot
+    // reach the filesystem" — being listed here as well does not weaken that.
+    //
+    // `composite: true` means every imported file must be listed, so a module gets a line here
+    // when it gains a test. If one of them starts importing something new, tsc will say so.
+    "src/renderer/**/*.test.ts",
+    "src/renderer/ui/senderColors.ts",
+    "src/renderer/ui/emoji.ts"
   ],
   "compilerOptions": {
     "lib": ["ES2023"],

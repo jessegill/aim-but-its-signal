@@ -10,62 +10,101 @@ Last updated: 2026-08-01.
 
 ---
 
-## Now — the three main-process capabilities
+## Now — awaiting a live check
 
-All three are blocked on the same thing: a renderer cannot touch the disk or the system UI
-(SPEC.md §3), so each needs a channel in `src/shared/types.ts`, a validated handler in
-`src/main/ipc.ts`, and an entry in the preload allowlist. The buttons already exist and
-currently explain what is missing instead of doing nothing.
+All four items below are written and green: `npm run typecheck`, `npm run lint`,
+`npm run format:check`, `npm run build`, `npm test` (123 tests). Item 3 has been exercised
+against the running app; the rest still need clicking — see "Confirming these by hand".
 
-### 1. Attach a file
+### 1. Attach a file — done, unverified live
 
-- [ ] `dialog:pickAttachments` → `dialog.showOpenDialog` in main, returning absolute paths.
-- [ ] Wire the 📎 toolbar button and *File → Send File…* to it. Both currently raise the
-      `ATTACH_NOTICE` in `src/renderer/im/App.tsx`.
-- [ ] Pass the chosen paths through the existing `im:send(conversationId, body, attachments)`
-      argument, which is already plumbed to signal-cli's `attachment` param and already
-      validated by `optionalStringArray`.
+- [x] `dialog:pickAttachments` → `dialog.showOpenDialog` in main, returning absolute paths plus
+      name, size and content type, sheet-attached to the conversation's own window.
+- [x] Wire the 📎 toolbar button, the *Attach…* button and *File → Send File…*.
+- [x] Pass the chosen paths through `im:send(conversationId, body, attachments)`.
+- [x] Refuse files over 100 MB at pick time, with the reason, rather than at send time with a
+      daemon error.
+- [x] Allow an empty body when there are attachments — a file with no caption is ordinary.
 
-The send path needs no protocol work — `service.send` already forwards attachments. This is
-almost entirely a picker and a button.
+**Decided: the file is copied into the attachment cache, but *after* the send, not before.**
+The roadmap raised this as a pick-time question; it turned out to matter for a second reason
+that outranks it. `markOutboundSent` was writing `kind: 'text'` and no attachment rows, so a
+sent file left **no trace in the sender's own log at all** — and Signal never syncs a message
+back to the device that sent it, so nothing would ever have filled that in. The cached copy is
+now what the sender's own history points at, which also puts it inside the expiry sweep: a file
+sent into a disappearing-message conversation is shredded here on the timer like any other.
 
-Worth deciding: whether to copy the file into the attachment cache before sending. signal-cli
-reads the path at send time, so a file the user moves or deletes in between fails the send.
+The user's own original is never touched. `AttachmentCache.adopt` exists precisely so this
+cannot be confused with `ingest`, which shreds its source on purpose because that source is the
+daemon's scratch copy.
 
-### 2. Open a received attachment
+Also closed a hole the picker opened: **main refuses any attachment path it did not itself
+vend.** `im:send` taking a renderer-supplied path is an arbitrary-file-*read* primitive — a
+compromised renderer could name `~/.ssh/id_ed25519` and have main mail it to a contact, and
+every part of that would look like an ordinary send.
 
-- [ ] `attachment:open(messageId, attachmentId)` → resolve the cached path in main, then
-      `shell.openPath`.
-- [ ] Wire `onOpenAttachment`, which currently raises `OPEN_ATTACHMENT_NOTICE`.
-- [ ] Resolve the path in **main from the message id**, never from a path supplied by the
-      renderer — a renderer-supplied path is an arbitrary-file-open primitive.
+### 2. Open a received attachment — done, unverified live
 
-**This one has a security decision in it, not just plumbing.** Attachments in a
-disappearing-message conversation are shredded when the timer expires (SPEC.md §8), and the
-store goes to real trouble to make that stick. Handing the file to another application copies
-it somewhere the sweep cannot reach — Preview's recents, QuickLook's thumbnail cache. Decide
-explicitly:
+- [x] `attachment:open(messageId, attachmentId)` → resolve in main, then `shell.openPath`.
+- [x] Wire `onOpenAttachment`.
+- [x] The path is resolved in main **from the message id**, and is additionally required to sit
+      inside our own cache root, so a row holding a foreign path could not open one either.
 
-- refuse to open attachments on expiring messages, or
-- warn once, or
-- allow it and accept that the guarantee ends at the app boundary.
+**Decided: warn, then allow.** Of the three options, refusing would make a legitimate file
+unreachable on the machine it was sent to and push the user to screenshot it instead — worse by
+every measure. Allowing silently would weaken a promise the rest of the codebase keeps
+carefully, without the person relying on it ever being told.
 
-Whatever is chosen, say so in the UI. Silently weakening the disappearing-message promise is
-the one outcome that is not acceptable.
+So: a native warning on the first attachment of an expiring message, naming the actual leak
+(Preview's recents, Quick Look's thumbnail cache), with a "don't warn me again" that lasts the
+session and is not persisted. Attachment chips on expiring messages carry a ⧗ and say the same
+thing on hover. The guarantee ends at the app boundary and the UI says so — which was the one
+condition this item set.
 
-### 3. Emoji picker on the smiley button
+### 3. Smiley button — done
 
-- [ ] `app.showEmojiPanel()` — Electron exposes the macOS system picker directly, and it is
-      main-process only, so it needs a channel.
-- [ ] Wire the `:-)` toolbar button (`onInsertEmoticon`, currently unwired).
+- [x] Wire the smiley toolbar button to an in-window emoji picker.
+- [x] Insertion at the caret, not appended — appending is wrong the moment the user goes back to
+      fix a word mid-sentence.
 
-The system panel inserts into the focused text field itself, so there is likely nothing to
-plumb back — but confirm that it reaches a `<textarea>` inside a `sandbox: true` renderer
-rather than assuming it.
+**Decided: Unicode emoji, not AIM emoticons.** The open question asked which of the two this
+button is; the answer is the modern one, and the reason is the recipient. AIM's menu inserted
+`:-)` as text because both ends drew their own graphic from it — but a Signal recipient's phone
+renders 🙂, so that is what the picker offers. A period-accurate control whose output nobody
+else's client understands is a costume. The chrome stays 2003; the glyphs are what travels.
 
-Open question: the panel inserts Unicode emoji, while AIM's own smiley menu inserted `:-)` and
-rendered it as a graphic. Decide whether this button is "insert emoji" or "insert AIM emoticon".
-They are different features and the era-correct one is the second.
+**`app.showEmojiPanel()` was tried first and does not work.** The macOS system panel is never
+presented when the focused field is a `<textarea>` inside a `sandbox: true` renderer — the
+concern SPEC.md §11.1 exists for, confirmed the only way it could be. The channel was removed
+rather than left as a button that silently does nothing, and the picker is an in-window grid
+instead: seven categories, a few hundred curated emoji, no dependence on the OS.
+
+### 4. A colour per member in a chat room — done, unverified live
+
+- [x] Stable per-sender colour in group conversations, in the message log and the member list.
+
+Derived from the sender's ACI by hash, not from their position in the member list: assigning by
+position would re-tint everyone below a member who left, changing the colours in a scrollback
+the user had already learned to read. Hashing costs collisions in rooms larger than the twelve
+colours — a legible failure, since the names are still spelled out on every line.
+
+Own lines stay `--ink-me` red. 1:1 windows are untouched: two people do not need more than
+AIM's two colours. Every palette entry clears 4.5:1 on the log's white, asserted in the test
+rather than eyeballed.
+
+### Confirming these by hand
+
+In order of likelihood of being wrong:
+
+1. **Sending a file**, then confirming it appears in your *own* log with a thumbnail or a chip.
+   That path had no coverage at all before and is new code end to end.
+2. **Inline thumbnails under `npm run dev`.** They were broken before the custom scheme and the
+   breakage was invisible in a packaged build — so this needs checking in *both*, not one.
+   Registering the scheme happens before app-ready, so a hot reload will not pick it up; the app
+   has to be restarted.
+3. **Opening a received attachment on a disappearing message** — that the warning appears once,
+   that "don't warn again" holds for the session, and that Cancel opens nothing.
+4. **A chat room with more than two active speakers**, for whether the colours actually help.
 
 ---
 
@@ -83,13 +122,17 @@ Recorded in `docs/STATE.md` under Known gaps; repeated here only as work items.
       filter expired and view-once content on the way in. Signal's linked-device protocol will
       not backfill and signal-cli keeps no store, so this is the only route to old history.
 - [ ] **Safety-number verification UI.** `onVerifySafetyNumber` raises a notice; the identity
-      store already records safety numbers and change events.
+      store already records safety numbers and change events. Now the last remaining notice of
+      its kind in the IM window — the other two are wired.
 - [ ] **A window opened by an incoming message can render empty.** Observed once in the packaged
       build: the log read "No messages yet" in a chat room that an arriving message had just
       opened. Title and member list were correct, so this is the read path, not groups. Not
       diagnosed.
-- [ ] **Formatting toolbar is decorative.** `im:send` takes a plain body; Signal supports ranged
-      text styling. The toolbar renders and toggles but nothing reaches the wire.
+- [ ] **Formatting reaches the composer but not the wire.** The toolbar now restyles the input
+      pane, so its buttons do something visible — but `im:send` still takes a plain body, and
+      Signal's ranged text styling (bold, italic, strikethrough, monospace, spoiler) is
+      untouched. Bold and italic are the two that could travel today; colour, size and underline
+      never can, and the toolbar says so on hover.
 - [ ] **Group membership changes are not events.** Joins and leaves are only noticed at the next
       `listGroups` sync. No "X has entered the room" line, which the chat-room idiom wants.
 - [ ] **Group admin actions.** No create, rename, add/remove member, or leave. `isAdmin` is

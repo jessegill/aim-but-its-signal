@@ -19,14 +19,16 @@
  */
 
 import * as React from 'react';
-import type { Attachment, Buddy, GroupChat, Message } from '../../shared/types';
+import type { Attachment, Buddy, GroupChat, Message, PickedFile } from '../../shared/types';
 import { TitleBar } from './TitleBar';
 import { MenuBar, imMenus, type MenuSpec } from './MenuBar';
 import { Button, StatusBar, TextArea, Window, WindowBody, cx } from './controls';
 import { FormattingToolbar, type FormattingState } from './FormattingToolbar';
-import { MessageLog, TypingIndicator } from './MessageLog';
+import { MessageLog, TypingIndicator, formatBytes } from './MessageLog';
 import { formatDuration } from './BuddyRow';
-import { BuddyGlyph } from './icons';
+import { BuddyGlyph, GlyphAttachment } from './icons';
+import { senderColor } from './senderColors';
+import { EMOJI_SECTIONS } from './emoji';
 
 export interface ImWindowProps {
   contact: Buddy;
@@ -52,8 +54,19 @@ export interface ImWindowProps {
   onTypingChange?: (isTyping: boolean) => void;
 
   onSend?: (body: string) => void;
+  /** The ✉ toolbar button and the *Attach…* button: any file. */
   onAttach?: () => void;
-  onOpenAttachment?: (a: Attachment) => void;
+  /** The 🖼 toolbar button: the same picker, filtered to images. Falls back to `onAttach`. */
+  onAttachImage?: () => void;
+  /**
+   * Files chosen but not yet sent. Staged in the host, not here: the paths came from the main
+   * process's picker and go back to it on send, and this component never learns what a path is
+   * for beyond printing its name.
+   */
+  pendingFiles?: PickedFile[];
+  onRemovePendingFile?: (path: string) => void;
+  /** Addressed by ids — see the note on `attachment:open` in shared/types.ts. */
+  onOpenAttachment?: (a: Attachment, messageId: string) => void;
   onQuoteClick?: (quoteId: string) => void;
   onVerifySafetyNumber?: () => void;
   safetyNumber?: string | null;
@@ -94,6 +107,9 @@ export function ImWindow({
   onTypingChange,
   onSend,
   onAttach,
+  onAttachImage,
+  pendingFiles = EMPTY_FILES,
+  onRemovePendingFile,
   onOpenAttachment,
   onQuoteClick,
   onVerifySafetyNumber,
@@ -115,6 +131,8 @@ export function ImWindow({
   const [localDraft, setLocalDraft] = React.useState('');
   const controlled = draft !== undefined;
   const value = controlled ? draft : localDraft;
+  const [emoticonsOpen, setEmoticonsOpen] = React.useState(false);
+  const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   // A nickname that is present but blank must fall through to the real name,
   // otherwise the title bar of a whole window goes empty.
@@ -145,6 +163,19 @@ export function ImWindow({
     () =>
       group === null ? undefined : (m: Message): string => (m.outgoing ? selfName : m.senderName),
     [group, selfName]
+  );
+
+  /**
+   * A colour per member, in rooms only. Own lines are left to `--ink-me` — red already means
+   * "you" and nothing is gained by moving it. A 1:1 window keeps AIM's two-colour convention
+   * intact, which is all the attribution two people need.
+   */
+  const resolveSenderColor = React.useMemo(
+    () =>
+      group === null
+        ? undefined
+        : (m: Message): string | undefined => (m.outgoing ? undefined : senderColor(m.senderId)),
+    [group]
   );
 
   /* Typing signal: on while the field is non-empty and being edited, off after
@@ -178,9 +209,36 @@ export function ImWindow({
     typingTimer.current = setTimeout(() => signalTyping(false), 4000);
   };
 
+  /**
+   * Inserts text at the caret, the way a toolbar insertion is expected to behave — appending to
+   * the end would be wrong the moment the user goes back to fix a word mid-sentence.
+   *
+   * Falls back to appending if the field has no selection to speak of, which is what a
+   * never-focused textarea reports.
+   */
+  const insertAtCaret = (text: string) => {
+    const field = inputRef.current;
+    const start = field?.selectionStart ?? value.length;
+    const end = field?.selectionEnd ?? value.length;
+    const next = value.slice(0, start) + text + value.slice(end);
+
+    if (controlled) onDraftChange?.(next);
+    else setLocalDraft(next);
+
+    // The caret has to be restored after React has written the new value, or the browser puts
+    // it at the end and the next keystroke lands in the wrong place.
+    requestAnimationFrame(() => {
+      const at = start + text.length;
+      field?.focus();
+      field?.setSelectionRange(at, at);
+    });
+  };
+
   const doSend = () => {
     const body = value.trim();
-    if (!body || blockedForSend) return;
+    // A file with no caption is an ordinary message; text with nothing else is too. Neither is
+    // not.
+    if ((!body && pendingFiles.length === 0) || blockedForSend) return;
     signalTyping(false);
     if (typingTimer.current) clearTimeout(typingTimer.current);
     onSend?.(body);
@@ -194,6 +252,24 @@ export function ImWindow({
       e.preventDefault();
       doSend();
     }
+  };
+
+  /**
+   * The composer wears whatever the toolbar is set to.
+   *
+   * This is what makes the colour and size buttons honest rather than decorative: they change
+   * something the user can see. It stops at this window — none of it reaches the wire, which is
+   * what the toolbar's hover text says — but "local preview" is a real behaviour, and it is the
+   * one AIM's own colour buttons had for anyone whose recipient did not render HTML.
+   */
+  const composerStyle: React.CSSProperties = {
+    fontWeight: formatting?.bold === true ? 'bold' : undefined,
+    fontStyle: formatting?.italic === true ? 'italic' : undefined,
+    textDecoration: formatting?.underline === true ? 'underline' : undefined,
+    fontFamily: formatting?.mono === true ? 'var(--aim-font-mono)' : undefined,
+    fontSize: formatting?.fontSize === undefined ? undefined : `${formatting.fontSize}px`,
+    color: formatting?.color,
+    background: formatting?.background,
   };
 
   const expiryOn = contact.messageExpirationTime > 0;
@@ -220,6 +296,7 @@ export function ImWindow({
             selfName={selfName}
             contactName={contactName}
             resolveName={resolveName}
+            resolveSenderColor={resolveSenderColor}
             canPlayVoice={canPlayVoice}
             safetyNumber={safetyNumber}
             onOpenAttachment={onOpenAttachment}
@@ -236,16 +313,55 @@ export function ImWindow({
           state={formatting}
           onChange={onFormattingChange}
           onAttach={onAttach}
+          onInsertImage={onAttachImage ?? onAttach}
+          // Signal has no link markup — a URL in the body IS the link, and every client
+          // autolinks it. So "insert link" is exactly "type a URL here", and the honest
+          // implementation is a caret insertion with the scheme already filled in.
+          onInsertLink={() => insertAtCaret('https://')}
+          onInsertEmoticon={() => setEmoticonsOpen((open) => !open)}
+          emoticonsOpen={emoticonsOpen}
           disabled={blockedForSend}
         />
+
+        {emoticonsOpen ? (
+          <EmojiPalette
+            /* Stays open across picks: choosing three in a row is the common case, and a
+               palette that closed after each one would make that four extra clicks. */
+            onPick={insertAtCaret}
+            onDismiss={() => setEmoticonsOpen(false)}
+          />
+        ) : null}
 
         <div className="aim-im__compose">
           {blockedForSend && blockReason ? (
             <div className="aim-im__warning">{blockReason}</div>
           ) : null}
 
+          {pendingFiles.length > 0 ? (
+            <ul className="aim-im__pending" aria-label="Files to send">
+              {pendingFiles.map((file) => (
+                <li key={file.path} className="aim-msg__chip" title={file.name}>
+                  <GlyphAttachment size={12} />
+                  <span className="aim-im__pending-name">{file.name}</span>
+                  <span className="aim-msg__chip-meta">{formatBytes(file.size)}</span>
+                  <button
+                    type="button"
+                    className="aim-im__pending-remove"
+                    aria-label={`Remove ${file.name}`}
+                    title={`Remove ${file.name}`}
+                    onClick={() => onRemovePendingFile?.(file.path)}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           <TextArea
+            ref={inputRef}
             className="aim-im__input"
+            style={composerStyle}
             value={value}
             placeholder={
               blockedForSend
@@ -283,7 +399,7 @@ export function ImWindow({
               isDefault
               wide
               onClick={doSend}
-              disabled={blockedForSend || value.trim().length === 0}
+              disabled={blockedForSend || (value.trim().length === 0 && pendingFiles.length === 0)}
             >
               Send
             </Button>
@@ -326,6 +442,82 @@ export function ImWindow({
   );
 }
 
+/** Stable identity, so a host that passes nothing does not re-render the composer each time. */
+const EMPTY_FILES: PickedFile[] = [];
+
+/**
+ * The emoji picker behind the smiley button.
+ *
+ * Unicode, not `:-)`. AIM's own menu inserted text and each end drew its own graphic — that is
+ * era-correct and it is not what ships here, because it is not what the other end sees: a phone
+ * renders 🙂, so the picker offers 🙂. A period-accurate control whose output nobody else's
+ * client understands is a costume, not a feature.
+ *
+ * The chrome around it is still 2003: square corners, XP face, hard-edged buttons. It is the
+ * glyphs that are modern, because the glyphs are the part that travels.
+ */
+function EmojiPalette({
+  onPick,
+  onDismiss,
+}: {
+  onPick: (emoji: string) => void;
+  onDismiss: () => void;
+}): React.ReactElement {
+  const [section, setSection] = React.useState(0);
+  const current = EMOJI_SECTIONS[section] ?? EMOJI_SECTIONS[0];
+
+  return (
+    <div
+      className="aim-emoji"
+      role="group"
+      aria-label="Emoji"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onDismiss();
+      }}
+    >
+      <div className="aim-emoji__tabs" role="tablist" aria-label="Emoji categories">
+        {EMOJI_SECTIONS.map((entry, index) => (
+          <button
+            key={entry.name}
+            type="button"
+            role="tab"
+            aria-selected={index === section}
+            className={cx('aim-emoji__tab', index === section && 'aim-emoji__tab--on')}
+            title={entry.name}
+            onClick={() => setSection(index)}
+          >
+            {entry.emoji[0]}
+          </button>
+        ))}
+        <span className="aim-emoji__tabspacer" />
+        <button
+          type="button"
+          className="aim-emoji__close"
+          aria-label="Close emoji picker"
+          title="Close"
+          onClick={onDismiss}
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="aim-emoji__grid" role="tabpanel" aria-label={current.name}>
+        {current.emoji.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className="aim-emoji__btn"
+            aria-label={emoji}
+            onClick={() => onPick(emoji)}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * The chat-room participant list (SPEC.md §8).
  *
@@ -346,7 +538,15 @@ function RoomList({ group }: { group: GroupChat }): React.ReactElement {
             title={m.isAdmin ? `${m.name} — group admin` : m.name}
           >
             <BuddyGlyph size={11} />
-            <span className="aim-room__name">{m.name}</span>
+            {/* The same colour this member's lines carry in the log, so the list is a legend
+                for the conversation rather than a second unrelated rendering of the roster.
+                Own entry is left alone — it is already marked as self. */}
+            <span
+              className="aim-room__name"
+              style={m.isSelf ? undefined : { color: senderColor(m.id) }}
+            >
+              {m.name}
+            </span>
             {m.isAdmin ? (
               <span className="aim-room__admin" aria-label="group admin">
                 ★

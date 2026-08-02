@@ -7,8 +7,14 @@
  * channels, but says nothing about the shape of the arguments on a known one.
  */
 
-import { ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { basename } from 'node:path';
+import { statSync } from 'node:fs';
 
+import { MAX_ATTACHMENT_BYTES } from '@shared/types';
+import type { PickedFile, RejectedFile } from '@shared/types';
+
+import { guessContentType } from './store/index.ts';
 import type { AppService } from './service.ts';
 
 function requireString(value: unknown, name: string): string {
@@ -50,15 +56,79 @@ export function registerIpc(service: AppService): void {
     'im:send',
     async (_event, conversationId: unknown, body: unknown, attachments: unknown) => {
       const id = requireString(conversationId, 'conversationId');
-      const text = requireString(body, 'body');
-      const messageId = await service.send(
-        id,
-        text,
-        optionalStringArray(attachments, 'attachments')
-      );
+      const files = optionalStringArray(attachments, 'attachments');
+      // A caption is optional when there is a file; a message with neither is not a message.
+      if (typeof body !== 'string') throw new TypeError('body must be a string');
+      if (body === '' && (files === undefined || files.length === 0)) {
+        throw new TypeError('body must be a non-empty string when there are no attachments');
+      }
+      const messageId = await service.send(id, body, files);
       return { messageId };
     }
   );
+
+  // -- attachments ----------------------------------------------------------
+
+  ipcMain.handle('dialog:pickAttachments', async (event, kind: unknown) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    // "All Files" stays available in both cases — the filter picks the default, it does not
+    // restrict what can be attached, and main runs the same checks on whatever comes back.
+    const filters =
+      kind === 'image'
+        ? [
+            { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'heic', 'webp', 'tiff'] },
+            { name: 'All Files', extensions: ['*'] },
+          ]
+        : [{ name: 'All Files', extensions: ['*'] }];
+    const options = {
+      // Sheet-attached to the conversation it will be sent to, so two open IM windows cannot
+      // leave the user guessing which one they are picking for.
+      properties: ['openFile', 'multiSelections'] as const,
+      buttonLabel: 'Attach',
+      title: kind === 'image' ? 'Send Picture' : 'Send File',
+      filters,
+    };
+    const result = await (parent === null
+      ? dialog.showOpenDialog({ ...options, properties: [...options.properties] })
+      : dialog.showOpenDialog(parent, { ...options, properties: [...options.properties] }));
+    if (result.canceled) return { files: [], rejected: [] };
+
+    const files: PickedFile[] = [];
+    const rejected: RejectedFile[] = [];
+
+    for (const path of result.filePaths) {
+      const name = basename(path);
+      let size: number;
+      try {
+        const stat = statSync(path);
+        if (!stat.isFile()) {
+          rejected.push({ name, reason: 'not a file' });
+          continue;
+        }
+        size = stat.size;
+      } catch {
+        rejected.push({ name, reason: 'could not be read' });
+        continue;
+      }
+      if (size > MAX_ATTACHMENT_BYTES) {
+        // Refused here rather than at send time: signal-cli's failure for an oversized file is
+        // a daemon error the user cannot act on.
+        rejected.push({ name, reason: 'larger than the 100 MB Signal allows' });
+        continue;
+      }
+      service.vendAttachmentPath(path);
+      files.push({ path, name, size, contentType: guessContentType(name) });
+    }
+
+    return { files, rejected };
+  });
+
+  ipcMain.handle('attachment:open', async (_event, messageId: unknown, attachmentId: unknown) => {
+    return await service.openAttachment(
+      requireString(messageId, 'messageId'),
+      requireString(attachmentId, 'attachmentId')
+    );
+  });
 
   ipcMain.handle('im:markRead', (_event, conversationId: unknown) => {
     requireString(conversationId, 'conversationId');

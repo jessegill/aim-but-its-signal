@@ -7,6 +7,11 @@
     "src/shared/**/*.ts",
     "src/preload/api.d.ts"
   ],
+  // Tests run under node:test, so they need `node` types that renderer source deliberately does
+  // not get. They are typechecked by tsconfig.node.json instead — which is also the honest
+  // description of where they execute. The modules they cover are still checked here with
+  // `types: []`, which is what actually enforces "a renderer cannot reach the filesystem".
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     // No "node" types in renderers — they are pure views (SPEC.md §3). If you find yourself

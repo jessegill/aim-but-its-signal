@@ -30,6 +30,7 @@
  */
 
 import * as React from 'react';
+import { attachmentUrl } from '../../shared/types';
 import type { Attachment, Message, Reaction, ReceiptState } from '../../shared/types';
 import { SecurityNotice } from './SecurityNotice';
 import { cx } from './controls';
@@ -138,12 +139,29 @@ export function QuoteStubView({
  * ------------------------------------------------------------------------ */
 export interface AttachmentViewProps {
   attachment: Attachment;
+  /** Owning message. Needed to address the bytes — a thumbnail is fetched by ids, not by path. */
+  messageId: string;
   /** Host may play voice notes; when false the fallback copy is shown. */
   canPlayVoice?: boolean;
   onOpen?: (a: Attachment) => void;
+  /**
+   * The message this attachment belongs to disappears on a timer, so opening it hands a copy
+   * to another application that will not honour that timer. Marked here; the host is what
+   * actually warns, because only it can ask before acting.
+   */
+  expiring?: boolean;
 }
 
-export function AttachmentView({ attachment: a, canPlayVoice, onOpen }: AttachmentViewProps) {
+const EXPIRING_HINT =
+  'This message disappears on a timer. Opening the file lets another app keep its own copy.';
+
+export function AttachmentView({
+  attachment: a,
+  messageId,
+  canPlayVoice,
+  onOpen,
+  expiring,
+}: AttachmentViewProps) {
   // ---- View-once: refused, per SPEC.md §8. Never rendered, never persisted. --
   if (a.viewOnce) {
     return (
@@ -189,9 +207,11 @@ export function AttachmentView({ attachment: a, canPlayVoice, onOpen }: Attachme
     return (
       <img
         className="aim-msg__thumb"
-        src={fileUrl(a.path)}
+        /* Served by the main process from the message row — never `file://`, which only
+           resolves in a packaged build. See ATTACHMENT_SCHEME in shared/types.ts. */
+        src={attachmentUrl(messageId, a.id)}
         alt={a.filename ?? 'Image attachment'}
-        title={`${a.filename ?? 'image'} · ${formatBytes(a.size)}`}
+        title={expiring ? EXPIRING_HINT : `${a.filename ?? 'image'} · ${formatBytes(a.size)}`}
         onClick={() => onOpen?.(a)}
       />
     );
@@ -206,22 +226,17 @@ export function AttachmentView({ attachment: a, canPlayVoice, onOpen }: Attachme
         role="button"
         tabIndex={0}
         onClick={() => onOpen?.(a)}
-        title={a.path ?? 'Not downloaded yet'}
+        title={expiring ? EXPIRING_HINT : (a.path ?? 'Not downloaded yet')}
       >
         {a.filename ?? a.contentType}
       </span>
       <span className="aim-msg__chip-meta">
         {formatBytes(a.size)}
         {a.path ? '' : ' · not downloaded'}
+        {expiring ? ' · ⧗' : ''}
       </span>
     </div>
   );
-}
-
-function fileUrl(path: string): string {
-  return path.startsWith('file:') || path.startsWith('data:') || path.startsWith('http')
-    ? path
-    : `file://${path}`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -235,8 +250,14 @@ export interface MessageRowProps {
   contactName: string;
   /** Override name resolution entirely — needed for group chats. */
   resolveName?: (m: Message) => string;
+  /**
+   * Colour for this line's sender name. Set in a chat room, where "theirs is blue" stops being
+   * enough to tell one voice from another; undefined falls back to the me/them classes.
+   */
+  senderColor?: string;
   canPlayVoice?: boolean;
-  onOpenAttachment?: (a: Attachment) => void;
+  /** The message id travels with the attachment: opening one is addressed by ids, not paths. */
+  onOpenAttachment?: (a: Attachment, messageId: string) => void;
   onQuoteClick?: (quoteId: string) => void;
   /** Wired through to any SecurityNotice this row renders. */
   onVerifySafetyNumber?: () => void;
@@ -249,6 +270,7 @@ export function MessageRow({
   selfName,
   contactName,
   resolveName,
+  senderColor,
   canPlayVoice,
   onOpenAttachment,
   onQuoteClick,
@@ -334,6 +356,8 @@ export function MessageRow({
             'aim-msg__sender',
             m.outgoing ? 'aim-msg__sender--me' : 'aim-msg__sender--them'
           )}
+          /* An explicit colour wins over the me/them classes; see senderColor. */
+          style={senderColor === undefined ? undefined : { color: senderColor }}
         >
           {name}:
         </span>{' '}
@@ -378,8 +402,10 @@ export function MessageRow({
         <AttachmentView
           key={a.id}
           attachment={a}
+          messageId={m.id}
           canPlayVoice={canPlayVoice}
-          onOpen={onOpenAttachment}
+          expiring={m.expiresAt !== null}
+          onOpen={(attachment) => onOpenAttachment?.(attachment, m.id)}
         />
       ))}
     </div>
@@ -408,13 +434,15 @@ export interface MessageLogProps {
   selfName: string;
   contactName: string;
   resolveName?: (m: Message) => string;
+  /** Per-sender colour. See {@link senderColor} on MessageRow. */
+  resolveSenderColor?: (m: Message) => string | undefined;
   canPlayVoice?: boolean;
   showDayDividers?: boolean;
   /** Stick to the bottom as messages arrive, unless the user scrolled up. */
   autoScroll?: boolean;
   emptyLabel?: string;
   safetyNumber?: string | null;
-  onOpenAttachment?: (a: Attachment) => void;
+  onOpenAttachment?: (a: Attachment, messageId: string) => void;
   onQuoteClick?: (quoteId: string) => void;
   onVerifySafetyNumber?: () => void;
   /**
@@ -430,6 +458,7 @@ export function MessageLog({
   selfName,
   contactName,
   resolveName,
+  resolveSenderColor,
   canPlayVoice,
   showDayDividers = true,
   autoScroll = true,
@@ -482,6 +511,7 @@ export function MessageLog({
               selfName={selfName}
               contactName={contactName}
               resolveName={resolveName}
+              senderColor={resolveSenderColor?.(m)}
               canPlayVoice={canPlayVoice}
               safetyNumber={safetyNumber}
               onOpenAttachment={onOpenAttachment}

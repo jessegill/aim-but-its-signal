@@ -15,6 +15,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import { WINDOW_CONTROL_CHANNELS } from '../preload/channels';
 import { ATTACHMENT_SCHEME } from '@shared/types';
 import { AppService } from './service.ts';
+import { defaultSocketPath, isSocketLive } from './daemon.ts';
 import { registerIpc } from './ipc.ts';
 
 let service: AppService | null = null;
@@ -120,7 +121,19 @@ app.on('second-instance', () => {
   service?.windows.openBuddyList();
 });
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
+  // Another copy (dev vs packaged) already owns the daemon socket. Starting anyway would delete
+  // that copy's socket and cut it off; say so and leave instead.
+  if (await isSocketLive(defaultSocketPath())) {
+    dialog.showErrorBox(
+      'AIMgnal is already running',
+      'Another copy of AIMgnal — perhaps the installed app, or one started with `npm run dev` — ' +
+        'is connected to your account. Quit it first, then open this one again.'
+    );
+    app.exit(0);
+    return;
+  }
+
   registerWindowControls();
 
   // A packaged build takes its Dock icon from the bundle's .icns. `npm run dev` runs the stock

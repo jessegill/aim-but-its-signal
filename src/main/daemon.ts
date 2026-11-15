@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { connect } from 'node:net';
 import { accessSync, chmodSync, constants, lstatSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -110,6 +111,29 @@ export function signalCliAttachmentsDir(): string {
       ? xdgDataHome
       : join(homedir(), '.local', 'share');
   return join(base, 'signal-cli', 'attachments');
+}
+
+/**
+ * True if something is already answering on the daemon socket — another copy of this app.
+ *
+ * The single-instance lock does not cover this: `npm run dev` and the packaged app have
+ * different user-data directories and so different locks, but share this socket path. The
+ * second copy's `start()` deletes the socket file to clear crash leftovers, which silently cut
+ * the first copy off from its daemon. A stale file from a crash refuses the connection, so it
+ * reads as not live and is cleaned up as before.
+ */
+export function isSocketLive(socketPath: string, timeoutMs = 750): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect(socketPath);
+    const finish = (live: boolean): void => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(live);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+  });
 }
 
 export interface DaemonOptions {

@@ -138,8 +138,8 @@ Recorded in `docs/STATE.md` under Known gaps; repeated here only as work items.
 - [ ] **Group admin actions.** No create, rename, add/remove member, or leave. `isAdmin` is
       stored and nothing acts on it.
 - [ ] **Admin-delete** of another member's message is a separate signal-cli method, unhandled.
-- [ ] **`group:reorder` semantics are undefined** in the contract — the renderer sends a desired
-      0-based index and expects main to re-index siblings.
+- [x] **Ordering and drag and drop.** Neighbour-based `roster:move` / `group:reorder`, and
+      drag and drop for buddies, rooms and groups in the buddy list.
 
 ---
 

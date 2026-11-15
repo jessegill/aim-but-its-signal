@@ -128,8 +128,7 @@ describe('roster', () => {
     try {
       const a = store.roster.createGroup('Alpha');
       const b = store.roster.createGroup('Beta');
-      store.roster.reorderGroup(a, 10);
-      store.roster.reorderGroup(b, 5);
+      store.roster.reorderGroup(b, a);
       store.roster.setGroupCollapsed(a, true);
 
       const groups = store.roster.listGroups();
@@ -137,6 +136,65 @@ describe('roster', () => {
       assert.ok(ordered.indexOf('Beta') < ordered.indexOf('Alpha'));
       assert.equal(groups.find((g) => g.id === a)?.collapsed, true);
       assert.equal(groups.find((g) => g.id === b)?.collapsed, false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('reordering groups lands exactly where asked, even from tied sort orders', () => {
+    const fixture = makeStore();
+    const { store } = fixture;
+    try {
+      const names = () => store.roster.listGroups().map((g) => g.name);
+      const a = store.roster.createGroup('A');
+      store.roster.createGroup('B');
+      const c = store.roster.createGroup('C');
+      const start = names(); // default group first, then A, B, C
+      assert.deepEqual(start.slice(-3), ['A', 'B', 'C']);
+
+      store.roster.reorderGroup(c, a); // before A
+      assert.deepEqual(names().slice(-3), ['C', 'A', 'B']);
+      store.roster.reorderGroup(c, null); // to the end
+      assert.deepEqual(names().slice(-3), ['A', 'B', 'C']);
+      store.roster.reorderGroup(a, c); // "move down one" = before the group after next
+      assert.deepEqual(names().slice(-3), ['B', 'A', 'C']);
+      // Renumbered densely: no two groups share a sort order afterwards.
+      const orders = store.roster.listGroups().map((g) => g.sortOrder);
+      assert.equal(new Set(orders).size, orders.length);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('moving a buddy before a neighbour places it there, across or within groups', () => {
+    const fixture = makeStore();
+    const { store } = fixture;
+    try {
+      const CAT = 'cccccccc-3333-3333-3333-333333333333';
+      store.roster.upsertContacts([
+        { uuid: ADA, name: 'Ada' },
+        { uuid: GRACE, name: 'Grace' },
+        { uuid: CAT, name: 'Cat' },
+      ]);
+      const work = store.roster.createGroup('Work');
+      store.roster.moveBuddy(ADA, work);
+      store.roster.moveBuddy(GRACE, work);
+      const order = () =>
+        store.roster
+          .getRoster()
+          .buddies.filter((x) => x.groupId === work)
+          .sort((x, y) => x.sortOrder - y.sortOrder)
+          .map((x) => x.id);
+      assert.deepEqual(order(), [ADA, GRACE]);
+
+      store.roster.moveBuddy(CAT, work, GRACE); // from another group, into the middle
+      assert.deepEqual(order(), [ADA, CAT, GRACE]);
+      store.roster.moveBuddy(ADA, work, null); // within the group, to the end
+      assert.deepEqual(order(), [CAT, GRACE, ADA]);
+      store.roster.moveBuddy(ADA, work, CAT); // to the top
+      assert.deepEqual(order(), [ADA, CAT, GRACE]);
+      store.roster.moveBuddy(GRACE, work, 'not-a-member'); // unknown neighbour: the end
+      assert.deepEqual(order(), [ADA, CAT, GRACE]);
     } finally {
       fixture.cleanup();
     }

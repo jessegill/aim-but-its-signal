@@ -35,8 +35,14 @@ export interface BuddyRowProps {
   /** Double-click — the canonical "open an IM window" gesture. */
   onOpen?: (buddy: Buddy) => void;
   onContextMenu?: (buddy: Buddy, e: React.MouseEvent) => void;
+  /** Drag-and-drop handlers from the buddy list, spread onto the row. */
+  dragProps?: React.HTMLAttributes<HTMLDivElement> & { draggable?: boolean };
+  /** Where a drop would land relative to this row, while something is dragged over it. */
+  dropIndicator?: DropIndicator | null;
   className?: string;
 }
+
+export type DropIndicator = 'before' | 'after' | 'into';
 
 export function BuddyRow({
   buddy,
@@ -46,6 +52,8 @@ export function BuddyRow({
   onSelect,
   onOpen,
   onContextMenu,
+  dragProps,
+  dropIndicator,
   className,
 }: BuddyRowProps) {
   const hasNick = !!buddy.nickname && buddy.nickname.trim().length > 0;
@@ -76,8 +84,10 @@ export function BuddyRow({
         selected && 'aim-buddy--selected',
         buddy.unregistered && 'aim-buddy--unregistered',
         buddy.blocked && 'aim-buddy--blocked',
+        dropIndicator && `aim-drop--${dropIndicator}`,
         className
       )}
+      {...dragProps}
       onClick={() => onSelect?.(buddy)}
       onDoubleClick={() => onOpen?.(buddy)}
       onContextMenu={(e) => {

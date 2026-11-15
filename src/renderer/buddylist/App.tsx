@@ -325,11 +325,43 @@ export function App(): JSX.Element {
       const index = groups.findIndex((g) => g.id === groupId);
       const target = index + delta;
       if (index < 0 || target < 0 || target >= groups.length) return;
-      // `sortOrder` is sent as the desired position in the ordered list; main is expected to
-      // re-index the others. See the group:reorder note in the report.
-      mutate('group:reorder', () => invoke('group:reorder', groupId, target));
+      // Addressed by neighbour: up one is "before the group above"; down one is "before the
+      // group two below", or the end when there is none.
+      const without = groups.filter((g) => g.id !== groupId);
+      const before = without[target]?.id ?? null;
+      mutate('group:reorder', () => invoke('group:reorder', groupId, before));
     },
     [groups, mutate]
+  );
+
+  /* --- drag and drop -------------------------------------------------------- */
+
+  const dropBuddy = React.useCallback(
+    (buddyId: BuddyId, groupId: GroupId, beforeBuddyId: BuddyId | null): void => {
+      mutate('roster:move', async () => {
+        await invoke('roster:move', buddyId, groupId, beforeBuddyId);
+        // Dropped into one of the user's groups from Pinned or Archived: it leaves the shelf,
+        // or it would stay displayed up there and the drop would look like it did nothing.
+        if ((conversations.find((c) => c.id === buddyId)?.shelf ?? 'normal') !== 'normal') {
+          await invoke('conversation:setShelf', buddyId, 'normal');
+        }
+      });
+    },
+    [mutate, conversations]
+  );
+
+  const dropGroup = React.useCallback(
+    (groupId: GroupId, beforeGroupId: GroupId | null): void => {
+      mutate('group:reorder', () => invoke('group:reorder', groupId, beforeGroupId));
+    },
+    [mutate]
+  );
+
+  const dropOnShelf = React.useCallback(
+    (conversationId: string, shelf: ConversationShelf): void => {
+      setShelf(conversationId, shelf);
+    },
+    [setShelf]
   );
 
   /* --- context menus ------------------------------------------------------ */
@@ -584,6 +616,9 @@ export function App(): JSX.Element {
         }}
         onToggleGroup={toggleGroup}
         onGroupContextMenu={onGroupContextMenu}
+        onMoveBuddy={dropBuddy}
+        onMoveGroup={dropGroup}
+        onShelve={dropOnShelf}
         onMinimize={windowChrome.minimize}
         onMaximize={windowChrome.maximize}
         onClose={windowChrome.close}

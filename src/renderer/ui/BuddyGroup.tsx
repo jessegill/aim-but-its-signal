@@ -31,6 +31,7 @@ import * as React from 'react';
 import type { BuddyGroup as BuddyGroupModel } from '../../shared/types';
 import { ExpanderBox, ExpanderTriangle } from './icons';
 import { cx } from './controls';
+import type { DropIndicator } from './BuddyRow';
 
 export interface BuddyGroupProps {
   group: BuddyGroupModel;
@@ -53,6 +54,10 @@ export interface BuddyGroupProps {
   children?: React.ReactNode;
   /** Shown when the group is expanded and has no members. */
   emptyLabel?: string;
+  /** Drag-and-drop handlers for the header row (dragging the group, or dropping onto it). */
+  headerDragProps?: React.HTMLAttributes<HTMLDivElement> & { draggable?: boolean };
+  /** Where a drop on the header would land, while something is dragged over it. */
+  headerDropIndicator?: DropIndicator | null;
   className?: string;
 }
 
@@ -68,6 +73,8 @@ export function BuddyGroup({
   onContextMenu,
   children,
   emptyLabel = 'No buddies in this group',
+  headerDragProps,
+  headerDropIndicator,
   className,
 }: BuddyGroupProps) {
   const open = !group.collapsed;
@@ -89,7 +96,10 @@ export function BuddyGroup({
         aria-expanded={open}
         tabIndex={-1}
         title={tooltip}
-        className="aim-group__header"
+        className={cx(
+          'aim-group__header',
+          headerDropIndicator && `aim-drop--${headerDropIndicator}`
+        )}
         onClick={() => {
           onSelect?.(group);
           onToggle?.(group, open);
@@ -104,6 +114,7 @@ export function BuddyGroup({
             onToggle?.(group, open);
           }
         }}
+        {...headerDragProps}
       >
         <span className="aim-group__expander">
           <Expander open={open} />

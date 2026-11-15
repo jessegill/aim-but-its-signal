@@ -356,13 +356,19 @@ export interface IpcRequests {
    */
   'conversations:get': () => ConversationEntry[];
   'conversation:setShelf': (conversationId: ConversationId, shelf: ConversationShelf) => void;
-  'roster:move': (buddyId: BuddyId, groupId: GroupId) => void;
+  /**
+   * Moves a buddy into a group, immediately before `beforeBuddyId` (null or omitted: the end).
+   * Within the same group this reorders. Positions are by neighbour, not index, because the
+   * buddy list hides some members and an index counted in what is visible would be wrong.
+   */
+  'roster:move': (buddyId: BuddyId, groupId: GroupId, beforeBuddyId?: BuddyId | null) => void;
   'roster:setNick': (buddyId: BuddyId, nickname: string | null) => void;
 
   'group:create': (name: string) => GroupId;
   'group:rename': (groupId: GroupId, name: string) => void;
   'group:delete': (groupId: GroupId) => void;
-  'group:reorder': (groupId: GroupId, sortOrder: number) => void;
+  /** Moves a group to immediately before `beforeGroupId`; null moves it to the end. */
+  'group:reorder': (groupId: GroupId, beforeGroupId: GroupId | null) => void;
   'group:setCollapsed': (groupId: GroupId, collapsed: boolean) => void;
 
   'window:openIm': (buddyId: BuddyId) => void;

@@ -56,12 +56,24 @@ export interface RosterStore {
   getRoster(): Roster;
   setNickname(id: BuddyId, nickname: string | null): void;
   setMessageExpirationTime(id: BuddyId, seconds: number): void;
-  moveBuddy(buddyId: BuddyId, groupId: GroupId, sortOrder?: number): void;
-  reorderBuddy(buddyId: BuddyId, sortOrder: number): void;
+  /**
+   * Puts a buddy in a group, immediately before `beforeBuddyId` — or at the end when that is
+   * null, omitted, or not in the group. Moving within the same group reorders it.
+   *
+   * Positions are given by neighbour rather than by index because the buddy list hides
+   * members (contacts never messaged), so a position counted in what the user sees would not
+   * match the stored order. The whole group is renumbered 0…n-1, so ties cannot accumulate.
+   */
+  moveBuddy(buddyId: BuddyId, groupId: GroupId, beforeBuddyId?: BuddyId | null): void;
   createGroup(name: string, sortOrder?: number): GroupId;
   renameGroup(groupId: GroupId, name: string): void;
   deleteGroup(groupId: GroupId): void;
-  reorderGroup(groupId: GroupId, sortOrder: number): void;
+  /**
+   * Moves a group to immediately before `beforeGroupId`, or to the end when that is null.
+   * Every group is renumbered 0…n-1. (This used to write the requested *index* straight into
+   * `sort_order`, which tied with a neighbour and often left the group where it was.)
+   */
+  reorderGroup(groupId: GroupId, beforeGroupId: GroupId | null): void;
   setGroupCollapsed(groupId: GroupId, collapsed: boolean): void;
   listGroups(): BuddyGroup[];
 }
@@ -310,30 +322,28 @@ export function createRosterStore(db: StoreDatabase): RosterStore {
         .run(Math.max(0, Math.floor(seconds)), id);
     },
 
-    moveBuddy(buddyId, groupId, sortOrder) {
+    moveBuddy(buddyId, groupId, beforeBuddyId) {
       const apply = db.transaction(() => {
         const exists = raw.prepare(`SELECT 1 FROM buddy_groups WHERE id = ?`).pluck().get(groupId);
         if (exists !== 1) throw new Error(`No such buddy group: ${groupId}`);
-        const order =
-          sortOrder ??
-          Number(
-            raw
-              .prepare(
-                `SELECT COALESCE(MAX(sort_order), -1) + 1 FROM buddy_group_members WHERE group_id = ?`
-              )
-              .pluck()
-              .get(groupId)
-          );
+        // Same order the roster is read in, so "before X" means what the user saw.
+        const others = (
+          raw
+            .prepare(
+              `SELECT m.buddy_id FROM buddy_group_members m
+                 LEFT JOIN buddies b ON b.id = m.buddy_id
+                WHERE m.group_id = ? AND m.buddy_id != ?
+                ORDER BY m.sort_order, b.display_name COLLATE NOCASE`
+            )
+            .pluck()
+            .all(groupId, buddyId) as string[]
+        ).slice();
+        const at = beforeBuddyId == null ? -1 : others.indexOf(beforeBuddyId);
+        others.splice(at < 0 ? others.length : at, 0, buddyId);
         // Upsert on the exclusive-membership primary key: a move replaces, never duplicates.
-        assignToGroup.run(buddyId, groupId, order);
+        others.forEach((id, index) => assignToGroup.run(id, groupId, index));
       });
       apply();
-    },
-
-    reorderBuddy(buddyId, sortOrder) {
-      raw
-        .prepare(`UPDATE buddy_group_members SET sort_order = ? WHERE buddy_id = ?`)
-        .run(Math.floor(sortOrder), buddyId);
     },
 
     createGroup(name, sortOrder) {
@@ -384,10 +394,20 @@ export function createRosterStore(db: StoreDatabase): RosterStore {
       apply();
     },
 
-    reorderGroup(groupId, sortOrder) {
-      raw
-        .prepare(`UPDATE buddy_groups SET sort_order = ? WHERE id = ?`)
-        .run(Math.floor(sortOrder), groupId);
+    reorderGroup(groupId, beforeGroupId) {
+      const apply = db.transaction(() => {
+        const ids = raw
+          .prepare(`SELECT id FROM buddy_groups ORDER BY sort_order, id`)
+          .pluck()
+          .all() as number[];
+        if (!ids.includes(groupId)) throw new Error(`No such buddy group: ${groupId}`);
+        const others = ids.filter((id) => id !== groupId);
+        const at = beforeGroupId === null ? -1 : others.indexOf(beforeGroupId);
+        others.splice(at < 0 ? others.length : at, 0, groupId);
+        const update = raw.prepare(`UPDATE buddy_groups SET sort_order = ? WHERE id = ?`);
+        others.forEach((id, index) => update.run(index, id));
+      });
+      apply();
     },
 
     setGroupCollapsed(groupId, collapsed) {

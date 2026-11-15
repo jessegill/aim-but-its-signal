@@ -919,6 +919,25 @@
   color: var(--ink-dim);
 }
 
+/* --- Drag and drop -------------------------------------------------------
+ * Where a dragged buddy or group would land. A 2px selection-blue line at the
+ * edge for "before"/"after" (inset shadow, so the row does not grow and shove
+ * the tree around), and a dotted selection-blue box for "into" — the same
+ * dotted focus rectangle the era used. Square, like everything else.       */
+.aim-drop--before {
+  box-shadow: inset 0 2px 0 var(--xp-select);
+}
+
+.aim-drop--after {
+  box-shadow: inset 0 -2px 0 var(--xp-select);
+}
+
+.aim-drop--into {
+  outline: 1px dotted var(--xp-select);
+  outline-offset: -1px;
+  background: var(--xp-hover);
+}
+
 /* --- Buddy row ------------------------------------------------------------
  * Tight: 16px tall. No presence column exists, so the name starts almost at
  * the indent guide.                                                          */

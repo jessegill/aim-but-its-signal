@@ -44,7 +44,7 @@ import { TitleBar } from './TitleBar';
 import { MenuBar, buddyListMenus, type MenuSpec } from './MenuBar';
 import { Button, StatusBar, Window, WindowBody, cx } from './controls';
 import { BuddyGroup } from './BuddyGroup';
-import { BuddyRow } from './BuddyRow';
+import { BuddyRow, type DropIndicator } from './BuddyRow';
 import { AppMark, ChatRoomGlyph } from './icons';
 import { CONNECTION_LABELS } from './connection';
 
@@ -107,6 +107,16 @@ export interface BuddyListWindowProps {
   onSelectGroup?: (groupId: GroupId) => void;
   onGroupContextMenu?: (groupId: GroupId, e: React.MouseEvent) => void;
 
+  /**
+   * Drag and drop. A buddy dropped on a group's row lands just before or after it; dropped on
+   * a group header, at the end of that group. `beforeBuddyId` null means the end.
+   */
+  onMoveBuddy?: (buddyId: BuddyId, groupId: GroupId, beforeBuddyId: BuddyId | null) => void;
+  /** A group header dropped before or after another. `beforeGroupId` null means the end. */
+  onMoveGroup?: (groupId: GroupId, beforeGroupId: GroupId | null) => void;
+  /** A buddy or room dropped on Pinned, Archived, or (rooms only) back on Chat Rooms. */
+  onShelve?: (conversationId: ConversationId, shelf: ConversationShelf) => void;
+
   onMinimize?: () => void;
   onMaximize?: () => void;
   onClose?: () => void;
@@ -115,6 +125,26 @@ export interface BuddyListWindowProps {
   footerButtons?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
+}
+
+/** What is being dragged. */
+type DragItem = { kind: 'buddy' | 'chat'; id: ConversationId } | { kind: 'group'; id: GroupId };
+
+/** What it is being dragged over. `next…Id` is the visible neighbour below, for "after". */
+type DropSpot =
+  | { kind: 'group-row'; groupId: GroupId; buddyId: BuddyId; nextBuddyId: BuddyId | null }
+  | { kind: 'group-header'; groupId: GroupId; nextGroupId: GroupId | null }
+  | { kind: 'shelf'; shelf: 'pinned' | 'archived' }
+  | { kind: 'rooms' };
+
+type DropAction = { indicator: DropIndicator; run: () => void } | null;
+
+const DRAG_MIME = 'application/x-aimgnal-item';
+
+/** Upper half of the row means "before it", lower half "after it". */
+function halfOf(e: React.DragEvent<HTMLElement>): 'before' | 'after' {
+  const rect = e.currentTarget.getBoundingClientRect();
+  return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
 }
 
 /**
@@ -132,6 +162,8 @@ function ChatRoomRow({
   onSelect,
   onOpen,
   onContextMenu,
+  dragProps,
+  dropIndicator,
 }: {
   chat: GroupChat;
   selected?: boolean;
@@ -139,6 +171,8 @@ function ChatRoomRow({
   onSelect?: (chat: GroupChat) => void;
   onOpen?: (chat: GroupChat) => void;
   onContextMenu?: (chat: GroupChat, e: React.MouseEvent) => void;
+  dragProps?: React.HTMLAttributes<HTMLDivElement> & { draggable?: boolean };
+  dropIndicator?: DropIndicator | null;
 }) {
   const title = [
     chat.name,
@@ -159,8 +193,10 @@ function ChatRoomRow({
         'aim-buddy',
         selected && 'aim-buddy--selected',
         !chat.isMember && 'aim-buddy--unregistered',
-        chat.blocked && 'aim-buddy--blocked'
+        chat.blocked && 'aim-buddy--blocked',
+        dropIndicator && `aim-drop--${dropIndicator}`
       )}
+      {...dragProps}
       onClick={() => onSelect?.(chat)}
       onDoubleClick={() => onOpen?.(chat)}
       onContextMenu={(e) => {
@@ -212,6 +248,9 @@ export function BuddyListWindow({
   onToggleGroup,
   onSelectGroup,
   onGroupContextMenu,
+  onMoveBuddy,
+  onMoveGroup,
+  onShelve,
   onMinimize,
   onMaximize,
   onClose,
@@ -292,31 +331,141 @@ export function BuddyListWindow({
     ? (roster.buddies.find((b) => b.id === selectedBuddyId) ?? null)
     : null;
 
-  // A buddy and a room render identically wherever they appear — Pinned, their own group, or
-  // Archived — so the row is defined once rather than three times with drifting props.
-  const renderBuddy = (buddy: Buddy): React.ReactElement => (
-    <BuddyRow
-      key={buddy.id}
-      buddy={buddy}
-      selected={selectedBuddyId === buddy.id}
-      unread={unreadByBuddy[buddy.id]}
-      onSelect={onSelectBuddy}
-      onOpen={onOpenIm}
-      onContextMenu={onBuddyContextMenu}
-    />
+  /* --- drag and drop ------------------------------------------------------
+   * What can go where, and nothing else:
+   *   buddy → a row in one of the user's groups   before/after that row
+   *   buddy → a user group's header               end of that group
+   *   buddy or room → Pinned / Archived           onto that shelf
+   *   room → Chat Rooms                           off its shelf
+   *   group header → another group header         before/after it
+   * A room never enters a buddy group (the roster is people, SPEC.md §6), and the synthetic
+   * section headers never move. Everything here is also reachable from the context menus.
+   * ---------------------------------------------------------------------- */
+
+  const dragItem = React.useRef<DragItem | null>(null);
+  const [dropAt, setDropAt] = React.useState<{ key: string; indicator: DropIndicator } | null>(
+    null
   );
 
-  const renderChat = (chat: GroupChat): React.ReactElement => (
-    <ChatRoomRow
-      key={chat.id}
-      chat={chat}
-      selected={selectedChatId === chat.id}
-      unread={unreadByBuddy[chat.id]}
-      onSelect={onSelectChat}
-      onOpen={onOpenChat}
-      onContextMenu={onChatContextMenu}
-    />
-  );
+  const endDrag = (): void => {
+    dragItem.current = null;
+    setDropAt(null);
+  };
+
+  const actionFor = (item: DragItem, spot: DropSpot, half: 'before' | 'after'): DropAction => {
+    if (item.kind === 'group') {
+      if (spot.kind !== 'group-header' || spot.groupId === item.id || onMoveGroup === undefined) {
+        return null;
+      }
+      const before = half === 'before' ? spot.groupId : spot.nextGroupId;
+      return { indicator: half, run: () => onMoveGroup(item.id, before) };
+    }
+    switch (spot.kind) {
+      case 'group-row': {
+        if (item.kind !== 'buddy' || spot.buddyId === item.id || onMoveBuddy === undefined) {
+          return null;
+        }
+        const before = half === 'before' ? spot.buddyId : spot.nextBuddyId;
+        return { indicator: half, run: () => onMoveBuddy(item.id, spot.groupId, before) };
+      }
+      case 'group-header':
+        if (item.kind !== 'buddy' || onMoveBuddy === undefined) return null;
+        return { indicator: 'into', run: () => onMoveBuddy(item.id, spot.groupId, null) };
+      case 'shelf':
+        if (shelfOf(item.id) === spot.shelf || onShelve === undefined) return null;
+        return { indicator: 'into', run: () => onShelve(item.id, spot.shelf) };
+      case 'rooms':
+        if (item.kind !== 'chat' || shelfOf(item.id) === 'normal' || onShelve === undefined) {
+          return null;
+        }
+        return { indicator: 'into', run: () => onShelve(item.id, 'normal') };
+    }
+  };
+
+  const dropTarget = (key: string, spot: DropSpot) => ({
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      const item = dragItem.current;
+      if (item === null) return;
+      const action = actionFor(item, spot, halfOf(e));
+      if (action === null) return; // not calling preventDefault is what refuses the drop
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      if (dropAt?.key !== key || dropAt.indicator !== action.indicator) {
+        setDropAt({ key, indicator: action.indicator });
+      }
+    },
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+      setDropAt((current) => (current?.key === key ? null : current));
+    },
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      const item = dragItem.current;
+      if (item === null) return;
+      const action = actionFor(item, spot, halfOf(e));
+      endDrag();
+      if (action === null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      action.run();
+    },
+  });
+
+  const dragSource = (item: DragItem) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent<HTMLDivElement>) => {
+      dragItem.current = item;
+      e.dataTransfer.effectAllowed = 'move';
+      // Chromium starts a drag only when something is set. The payload itself is unused:
+      // the item lives in a ref, so nothing dropped from outside the window can act.
+      e.dataTransfer.setData(DRAG_MIME, String(item.id));
+    },
+    onDragEnd: endDrag,
+  });
+
+  const indicatorFor = (key: string): DropIndicator | null =>
+    dropAt?.key === key ? dropAt.indicator : null;
+
+  // A buddy and a room render identically wherever they appear — Pinned, their own group, or
+  // Archived — so the row is defined once rather than three times with drifting props. Only
+  // where it is dropped onto differs, which `spot` carries.
+  const renderBuddy = (buddy: Buddy, spot: DropSpot): React.ReactElement => {
+    const key = `${spot.kind}:${buddy.id}`;
+    return (
+      <BuddyRow
+        key={buddy.id}
+        buddy={buddy}
+        selected={selectedBuddyId === buddy.id}
+        unread={unreadByBuddy[buddy.id]}
+        onSelect={onSelectBuddy}
+        onOpen={onOpenIm}
+        onContextMenu={onBuddyContextMenu}
+        dragProps={{ ...dragSource({ kind: 'buddy', id: buddy.id }), ...dropTarget(key, spot) }}
+        dropIndicator={indicatorFor(key)}
+      />
+    );
+  };
+
+  const renderChat = (chat: GroupChat, spot: DropSpot): React.ReactElement => {
+    const key = `${spot.kind}:${chat.id}`;
+    return (
+      <ChatRoomRow
+        key={chat.id}
+        chat={chat}
+        selected={selectedChatId === chat.id}
+        unread={unreadByBuddy[chat.id]}
+        onSelect={onSelectChat}
+        onOpen={onOpenChat}
+        onContextMenu={onChatContextMenu}
+        dragProps={{ ...dragSource({ kind: 'chat', id: chat.id }), ...dropTarget(key, spot) }}
+        dropIndicator={indicatorFor(key)}
+      />
+    );
+  };
+
+  const PINNED: DropSpot = { kind: 'shelf', shelf: 'pinned' };
+  const ARCHIVED: DropSpot = { kind: 'shelf', shelf: 'archived' };
+  const ROOMS: DropSpot = { kind: 'rooms' };
 
   const defaultFooter = (
     <>
@@ -374,15 +523,24 @@ export function BuddyListWindow({
             total={pinnedCount}
             countLabel={`(${String(pinnedCount)})`}
             expander={expander}
-            emptyLabel="Right-click anyone to pin them here"
+            emptyLabel="Right-click or drag anyone here to pin them"
             onToggle={(_g, collapsed) => setPinnedCollapsed(collapsed)}
+            headerDragProps={dropTarget('header:pinned', PINNED)}
+            headerDropIndicator={indicatorFor('header:pinned')}
           >
-            {pinnedBuddies.map(renderBuddy)}
-            {pinnedChats.map(renderChat)}
+            {pinnedBuddies.map((b) => renderBuddy(b, PINNED))}
+            {pinnedChats.map((c) => renderChat(c, PINNED))}
           </BuddyGroup>
 
-          {groups.map((group) => {
+          {groups.map((group, groupIndex) => {
             const members = membersByGroup.get(group.id) ?? [];
+            const headerKey = `header:${String(group.id)}`;
+            const headerSpot: DropSpot = {
+              kind: 'group-header',
+              groupId: group.id,
+              // The full order, hidden empty groups included, so "after" is exact.
+              nextGroupId: groups[groupIndex + 1]?.id ?? null,
+            };
             if (hideEmptyGroups && members.length === 0) return null;
             const unreadBuddies = members.filter((b) => (unreadByBuddy[b.id] ?? 0) > 0).length;
 
@@ -397,8 +555,20 @@ export function BuddyListWindow({
                 onToggle={(g, collapsed) => onToggleGroup?.(g.id, collapsed)}
                 onSelect={(g) => onSelectGroup?.(g.id)}
                 onContextMenu={(g, e) => onGroupContextMenu?.(g.id, e)}
+                headerDragProps={{
+                  ...dragSource({ kind: 'group', id: group.id }),
+                  ...dropTarget(headerKey, headerSpot),
+                }}
+                headerDropIndicator={indicatorFor(headerKey)}
               >
-                {members.map(renderBuddy)}
+                {members.map((buddy, index) =>
+                  renderBuddy(buddy, {
+                    kind: 'group-row',
+                    groupId: group.id,
+                    buddyId: buddy.id,
+                    nextBuddyId: members[index + 1]?.id ?? null,
+                  })
+                )}
               </BuddyGroup>
             );
           })}
@@ -418,8 +588,10 @@ export function BuddyListWindow({
               countLabel={`(${String(unreadRooms)}/${String(ordinaryChats.length)})`}
               expander={expander}
               onToggle={(_g, collapsed) => setRoomsCollapsed(collapsed)}
+              headerDragProps={dropTarget('header:rooms', ROOMS)}
+              headerDropIndicator={indicatorFor('header:rooms')}
             >
-              {ordinaryChats.map(renderChat)}
+              {ordinaryChats.map((c) => renderChat(c, ROOMS))}
             </BuddyGroup>
           ) : null}
 
@@ -437,9 +609,11 @@ export function BuddyListWindow({
               countLabel={`(${String(archivedCount)})`}
               expander={expander}
               onToggle={(_g, collapsed) => setArchivedCollapsed(collapsed)}
+              headerDragProps={dropTarget('header:archived', ARCHIVED)}
+              headerDropIndicator={indicatorFor('header:archived')}
             >
-              {archivedBuddies.map(renderBuddy)}
-              {archivedChats.map(renderChat)}
+              {archivedBuddies.map((b) => renderBuddy(b, ARCHIVED))}
+              {archivedChats.map((c) => renderChat(c, ARCHIVED))}
             </BuddyGroup>
           ) : null}
         </div>

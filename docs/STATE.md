@@ -199,6 +199,24 @@ conversation is read here or on the phone (`sync-read` → `im:read`).
 from that conversation's own IM window, so one compromised renderer cannot read or send in every
 conversation.
 
+**Ordering is by neighbour, never by index.** `roster:move(buddy, group, beforeBuddyId)` and
+`group:reorder(group, beforeGroupId)` insert before a named sibling (null: the end) and renumber
+the whole group 0…n-1. An index fails here because the tree hides members — contacts never
+messaged, empty groups — so a position counted in what the user sees is not the stored one. The
+old `group:reorder` wrote the index straight into `sort_order`, tied with a neighbour, and Move
+Up/Down often did nothing.
+
+**Drag and drop moves only what a context menu could already move.** Buddies into or within
+the user's groups, buddies and rooms onto Pinned or Archived, rooms back to Chat Rooms, group
+headers before or after each other. A room can never enter a buddy group, and the synthetic
+section headers never move. The dragged item lives in a ref, not the drag payload, so nothing
+dropped from outside the window can act.
+
+**A second copy refuses to start.** `npm run dev` and the packaged app have different
+user-data directories and therefore different single-instance locks, but the same daemon socket
+— and `start()` deletes a leftover socket file, which cut the running copy off. Start-up now
+probes the socket and says "already running" instead.
+
 **Sign Off erases this computer's copy.** A linked device cannot remove itself from the account,
 so *File → Sign Off and Relink…* deletes signal-cli's local credentials for the account and this
 app's database, key and attachments, relaunches into the QR code, and tells the user to remove
@@ -348,8 +366,6 @@ Decisions, not typing:
   message read path, not the group. Not diagnosed.
 - **Formatting stops at the composer** — the toolbar restyles the input pane, but `im:send` takes
   a plain body and Signal's ranged styling is unused.
-- **`group:reorder` semantics** — the renderer sends a desired 0-based index and expects main to
-  re-index siblings. Undefined in the contract.
 - **Code signing / notarization is off**, with the exact block written as a comment in
   `electron-builder.yml`. An unsigned build will be Gatekeeper-blocked.
 - **Admin-delete** of another member's message is a separate method, not handled.
@@ -374,6 +390,11 @@ pgrep -fl 'signal-cli|AIMgnal'
 pkill -f 'signal-cli.*daemon'
 pkill -f capture-envelopes
 ```
+
+`npm run dev` and `npm run preview` clear `ELECTRON_RUN_AS_NODE` themselves. VS Code's
+integrated terminal exports it, and with it set Electron starts as plain Node and crashes on
+`app.requestSingleInstanceLock`. Anything else that launches Electron from that terminal needs
+`env -u ELECTRON_RUN_AS_NODE` too.
 
 **A main-process change needs a real restart, not a reload.** electron-vite hot-reloads renderers
 only; the main bundle is built once at start. Anything that runs before `app.whenReady()` — the

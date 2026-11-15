@@ -194,9 +194,16 @@ export function registerIpc(service: AppService): void {
     service.setShelf(id, shelf);
   });
 
-  ipcMain.handle('roster:move', (_event, buddyId: unknown, groupId: unknown) => {
-    service.roster.moveBuddy(requireString(buddyId, 'buddyId'), requireNumber(groupId, 'groupId'));
-  });
+  ipcMain.handle(
+    'roster:move',
+    (_event, buddyId: unknown, groupId: unknown, beforeBuddyId: unknown) => {
+      service.roster.moveBuddy(
+        requireString(buddyId, 'buddyId'),
+        requireNumber(groupId, 'groupId'),
+        beforeBuddyId == null ? null : requireString(beforeBuddyId, 'beforeBuddyId')
+      );
+    }
+  );
 
   ipcMain.handle('roster:setNick', (_event, buddyId: unknown, nickname: unknown) => {
     const id = requireString(buddyId, 'buddyId');
@@ -220,10 +227,10 @@ export function registerIpc(service: AppService): void {
     service.roster.deleteGroup(requireNumber(groupId, 'groupId'));
   });
 
-  ipcMain.handle('group:reorder', (_event, groupId: unknown, sortOrder: unknown) => {
+  ipcMain.handle('group:reorder', (_event, groupId: unknown, beforeGroupId: unknown) => {
     service.roster.reorderGroup(
       requireNumber(groupId, 'groupId'),
-      requireNumber(sortOrder, 'sortOrder')
+      beforeGroupId === null ? null : requireNumber(beforeGroupId, 'beforeGroupId')
     );
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "aimgnal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A 2003-era instant messenger shell riding the Signal network as a linked device.",
   "license": "MIT",

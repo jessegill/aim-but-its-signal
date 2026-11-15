@@ -156,7 +156,8 @@ export interface BuddyListMenuHandlers {
   onMoveToGroup?: () => void;
   onSafetyNumber?: () => void;
   onAbout?: () => void;
-  onRelink?: () => void;
+  /** Erase this computer's copy of the account and return to the QR code. */
+  onSignOff?: () => void;
   /** Toggle state for the "Show Offline…"-shaped slot. See note below. */
   showEmptyGroups?: boolean;
   onToggleShowEmptyGroups?: () => void;
@@ -189,7 +190,7 @@ export function buddyListMenus(h: BuddyListMenuHandlers = {}): MenuSpec[] {
         { label: 'New Group…', accelerator: '⌘G', onSelect: h.onNewGroup },
         { label: 'Add Buddy…', accelerator: '⌘N', onSelect: h.onAddBuddy },
         { separator: true },
-        { label: 'Relink Device…', onSelect: h.onRelink },
+        { label: 'Sign Off and Relink…', onSelect: h.onSignOff },
         { separator: true },
         { label: 'Preferences…', accelerator: '⌘,', onSelect: h.onPreferences },
         { separator: true },

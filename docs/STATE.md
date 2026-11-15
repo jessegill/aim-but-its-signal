@@ -4,17 +4,18 @@ Working notes for picking this up cold. Complements `SPEC.md` (what to build),
 `docs/signal-cli-rpc.md` (what the daemon actually does), and `docs/ROADMAP.md` (what is next).
 This file is the present tense; the roadmap is the future one.
 
-Last updated: 2026-08-01.
+Last updated: 2026-11-14.
 
 ---
 
 ## Status in one line
 
 Phases 1–5 are written, tested and green, the app runs against the live account, and group
-conversations work.
+conversations work. Relinking from the app's own QR code was exercised live on 2026-11-14,
+after this computer had been removed from the phone's Linked Devices.
 
 `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`, `npm test`
-(123 tests) all pass, `npm run package` produces `release/AIMgnal-0.1.0-arm64.dmg` (117 MB), and
+(130 tests) all pass, `npm run package` produces `release/AIMgnal-0.1.0-arm64.dmg` (117 MB), and
 that packaged build has been launched from Finder: buddy list, live group chat rooms with named
 members, and the daemon resolved from Homebrew. The first launch found four bugs no test could
 have, and the first *packaged* launch found three more (both lists below).
@@ -30,18 +31,23 @@ it ("damaged / cannot be opened"). The exact block to enable signing is written 
 
 | Thing | Value |
 |---|---|
-| Repo | `~/Projects/aim-but-its-signal` (moved out of iCloud — an apostrophe in the old path broke node-gyp and electron-builder) |
+| Repo | `~/Library/Mobile Documents/com~apple~CloudDocs/Projects/aim-but-its-signal` — iCloud Drive, kept downloaded locally. The old path had an apostrophe that broke node-gyp; this one does not |
 | GitHub | `jessegill/aim-but-its-signal`, public, `main` |
 | Product name | **AIMgnal** (`dev.aimgnal.app`) |
 | Target | macOS **arm64 only**, minimum macOS 15 |
 | signal-cli | **0.14.6** (Homebrew, a GraalVM native image) |
 | Electron | **42** — pinned, see below |
 | Node | 26.5.1 |
-| Linked account | The user's **primary personal** Signal account, `+15550000000`, device 4 |
-| Self ACI | `11111111-2222-4333-8444-555555555555` |
+| Linked account | The user's own Signal account, as a linked device. The number and ACI are deliberately not written down here — this repository is public |
 
-The account is at the 5-linked-device cap. Three stale `macOS` entries (devices 3, 5, 6) can be
-removed from the phone to free a slot if a relink is needed.
+Signal allows five linked devices per account. Remove stale entries from the phone before
+relinking if it refuses.
+
+**Never write the account's phone number or ACI into a tracked file.** Both were once
+committed here and had to be scrubbed from history. `scripts/hooks/check-secrets.sh` now
+refuses real-looking phone numbers, and refuses exact strings listed in the untracked
+`.git/info/check-secrets-denylist` (put the number and ACI there in any fresh clone). Run
+`scripts/hooks/install-hooks.sh` once per clone, or the pre-commit guard never runs.
 
 ---
 
@@ -158,6 +164,60 @@ assignment would re-tint everyone below a member who left, changing colours thro
 scrollback the user had already learned to read. The cost is collisions past twelve members,
 which is a legible failure — the names are still spelled out on every line.
 
+**Receives that arrive before the account's ACI is known are buffered, not dropped.** Under
+`on-connection` the backlog that queued while the app was shut arrives the instant the socket
+connects, a couple of round trips before bring-up knows who "self" is. Dropping it lost every
+message received while the app was closed, permanently — the daemon had already acknowledged
+it. The buffer is flushed synchronously, so arrival order is kept.
+
+**An unregistered account is detected, not suffered.** A daemon started after the phone removed
+this device drops the account (`listAccounts` → `[]`, every account call → `-32602 Specified
+account does not exist`); one already running gets authorization failures. Either sends the app
+to the sign-on window, and the daemon is restarted so it forgets the stale account.
+
+**The sign-on window always has a code.** Main generates one the moment it finds no linked
+account, brings the window to the front, and replaces the code if it expires unscanned.
+`finishLink` gets a 10-minute timeout; on the 30 s default every scan slower than that failed.
+After a link, the RPC connection is renewed, because the daemon subscribes a connection only to
+accounts that existed when it opened.
+
+**A partial send failure is written into the conversation.** signal-cli fails `send` only when
+*no* recipient got it. In a group, members who did not (changed safety number, unregistered)
+are listed in a `system` notice — "Not delivered to Dave (their safety number changed)" — instead
+of the message simply reading "sent".
+
+**A first-ever message does not open a window.** A conversation with no history and no pin is a
+stranger, in effect a message request: it notifies and appears in the buddy list, but does not
+put a window on screen uninvited. Messages from blocked contacts and blocked rooms are discarded
+and their media shredded.
+
+**Notifications carry no text for a disappearing message.** Notification Center keeps its own
+copy, which would outlive the timer. The Dock badge counts unread messages and clears when a
+conversation is read here or on the phone (`sync-read` → `im:read`).
+
+**IPC checks which window is asking.** Conversation-scoped requests are refused unless they come
+from that conversation's own IM window, so one compromised renderer cannot read or send in every
+conversation.
+
+**Sign Off erases this computer's copy.** A linked device cannot remove itself from the account,
+so *File → Sign Off and Relink…* deletes signal-cli's local credentials for the account and this
+app's database, key and attachments, relaunches into the QR code, and tells the user to remove
+the device on the phone.
+
+---
+
+## Bugs a code review found (2026-11-14)
+
+1. **Every message received while the app was closed was lost.** See the buffering decision
+   above. Source-reading found it; nothing in the tests could, because the tests never model
+   the order in which bring-up and the backlog race.
+2. **The QR code never appeared.** The sign-on window was written against a channel that did
+   not exist yet and was never revisited once it did: nothing called `startLink`, the code was
+   read from a query string nobody set, and Relink / Restart Service showed "not wired yet".
+3. **Two daemon connections.** `rpc.connect()` opened a second socket while the reconnect loop
+   was already opening one, so every receive arrived twice (deduplicated by the store) and
+   bring-up ran twice in parallel. Found from the log of the relink.
+
 ---
 
 ## Bugs real traffic found that source-reading did not
@@ -255,6 +315,7 @@ emission killed startup, and window geometry was written to a closed database on
 | `src/main/rpc.ts` | JSON-RPC over the socket: framing, id correlation, timeouts, reconnect |
 | `src/main/daemon.ts` | Spawn/supervise signal-cli; `signalCliAttachmentsDir()` |
 | `src/main/events.ts` | Envelopes → typed domain events. Total, non-throwing |
+| `src/main/signal-results.ts` | `send` result failures; "is this device unlinked?" detection |
 | `src/main/service.ts` | The single owner: store + daemon + rpc + windows |
 | `src/main/windows.ts` | `Map<ConversationId, BrowserWindow>`, geometry, flash |
 | `src/main/ipc.ts` | Thin handlers, every argument validated |
@@ -292,6 +353,12 @@ Decisions, not typing:
 - **Code signing / notarization is off**, with the exact block written as a comment in
   `electron-builder.yml`. An unsigned build will be Gatekeeper-blocked.
 - **Admin-delete** of another member's message is a separate method, not handled.
+- **No preferences window.** Sounds, notifications and open-on-incoming are always on (the last
+  except for first contact). They are fields in `service.ts`, not settings.
+- **"First contact" is a heuristic** — no history and no pin. Signal's own message-request
+  acceptance state is not read, and there is no Accept / Block action.
+- **The duplicate-connection bug may explain the empty-window report above**: bring-up ran
+  twice in parallel. Unconfirmed; worth re-checking before digging further.
 
 ---
 

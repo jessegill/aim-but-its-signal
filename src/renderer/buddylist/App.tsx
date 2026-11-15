@@ -151,6 +151,15 @@ export function App(): JSX.Element {
 
   useIpcEvent('roster:updated', () => void refresh());
   useIpcEvent('connection:state', (state) => setConnection(state));
+  // Read here or on another device: the tally goes, whichever window is open.
+  useIpcEvent('im:read', (conversationId) => {
+    setUnreadByBuddy((prev) => {
+      if (!(conversationId in prev)) return prev;
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
+  });
   useIpcEvent('im:message', (conversationId, message) => {
     // A conversation nobody has seen before has to join the tree — that is the whole point of
     // an activity-driven list. Re-read only on the first message for an unknown id, so an
@@ -480,6 +489,8 @@ export function App(): JSX.Element {
       showAllConversations,
       onToggleShowAllConversations: () => setShowAllConversations((v) => !v),
       onNewGroup: () => promptNewGroup(),
+      // Main asks for confirmation natively and relaunches into the sign-on window.
+      onSignOff: () => mutate('connection:signOff', () => invoke('connection:signOff')),
       onCloseWindow: windowChrome.close,
       onSendMessage: selectedBuddy ? () => openIm(selectedBuddy) : undefined,
       onEditNickname: selectedBuddy ? () => promptNickname(selectedBuddy) : undefined,
@@ -505,7 +516,7 @@ export function App(): JSX.Element {
 
     // The remaining slots each need a main-process capability that no channel in
     // src/shared/types.ts provides (add buddy, preferences, buddy info, safety numbers,
-    // relink, clipboard, search). They are greyed out rather than left looking live and doing
+    // clipboard, search). They are greyed out rather than left looking live and doing
     // nothing when clicked.
     return built.map((m) => ({
       ...m,
@@ -516,6 +527,7 @@ export function App(): JSX.Element {
       ),
     }));
   }, [
+    mutate,
     selectedBuddy,
     showEmptyGroups,
     showAllConversations,

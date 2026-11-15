@@ -11,7 +11,7 @@
  * already acknowledged is gone from the server too.
  */
 
-import { app, dialog, net, protocol, shell } from 'electron';
+import { app, dialog, net, Notification, protocol, shell } from 'electron';
 
 import { ATTACHMENT_SCHEME, parseAttachmentUrl } from '@shared/types';
 import type {
@@ -25,16 +25,29 @@ import type {
   Roster,
   SelfAccount,
 } from '@shared/types';
-import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { SignalDaemon, defaultSocketPath, signalCliAttachmentsDir } from './daemon.ts';
-import { RpcClient } from './rpc.ts';
+import { RpcClient, RpcTimeoutError } from './rpc.ts';
+import {
+  describeSendFailure,
+  isAccountGoneError,
+  receiveSaysUnlinked,
+  summarizeSendResults,
+} from './signal-results.ts';
 import { parseReceive } from './events.ts';
 import type { DomainEvent, IncomingMessageEvent, RawAttachment } from './events.ts';
 import { WindowManager } from './windows.ts';
-import { openStore, computeExpiresAt, deriveMessageId } from './store/index.ts';
+import {
+  ATTACHMENTS_SUBDIR,
+  STORE_SUBDIR,
+  openStore,
+  computeExpiresAt,
+  deriveMessageId,
+} from './store/index.ts';
 import type { RawContact, RawGroup, RawGroupMember, Store } from './store/index.ts';
 import type { Attachment } from '@shared/types';
 
@@ -47,7 +60,21 @@ export const PUSH = {
   rosterUpdated: 'roster:updated',
   connectionState: 'connection:state',
   linkUri: 'connection:linkUri',
+  read: 'im:read',
 } as const;
+
+/** What appears in the phone's Linked Devices list. */
+const DEVICE_NAME = 'AIMgnal';
+
+/**
+ * How long `finishLink` may wait for the phone. It blocks until the QR code is scanned, so the
+ * RPC default (30 s) failed every link that took longer than that to find a phone and open the
+ * camera.
+ */
+const LINK_TIMEOUT_MS = 10 * 60_000;
+
+/** Ceiling on receives held while bring-up is still resolving the account's own ACI. */
+const MAX_PENDING_RECEIVES = 10_000;
 
 export class AppService {
   readonly windows: WindowManager;
@@ -66,10 +93,13 @@ export class AppService {
   private rosterSyncing = false;
   private groupSyncing = false;
 
+  private readonly userDataDir: string;
+
   constructor(options?: { socketPath?: string; userDataDir?: string }) {
     const socketPath = options?.socketPath ?? defaultSocketPath();
 
-    this.store = openStore({ userDataDir: options?.userDataDir ?? app.getPath('userData') });
+    this.userDataDir = options?.userDataDir ?? app.getPath('userData');
+    this.store = openStore({ userDataDir: this.userDataDir });
     this.windows = new WindowManager(this.store.windows);
     this.daemon = new SignalDaemon({ socketPath });
     this.rpc = new RpcClient({ socketPath });
@@ -135,6 +165,10 @@ export class AppService {
 
     this.rpc.on('notification', (method: string, params: unknown) => {
       if (method !== 'receive') return;
+      if (receiveSaysUnlinked(params)) {
+        void this.onAccountLost();
+        return;
+      }
       this.onReceive(params);
     });
 
@@ -180,23 +214,78 @@ export class AppService {
         record === null ? null : typeof record.number === 'string' ? record.number : null;
 
       if (number === null) {
-        // The daemon is up but no account is linked. This is the first-run path.
+        // The daemon is up but no account is linked: first run, or this computer was removed
+        // from the phone's Linked Devices (the daemon drops an unregistered account at start,
+        // so both look the same). Either way the answer is a QR code, generated now rather
+        // than waiting for a click — a sign-on window with no code in it is a dead end.
+        this.account = null;
+        this.selfId = null;
+        this.pendingReceives.length = 0;
         this.setState('unlinked');
-        this.windows.openSignOn();
+        // Brought to the front: nothing else in the app works until the code is scanned, and
+        // a sign-on window behind other apps looks exactly like no sign-on window at all.
+        this.windows.openSignOn().once('ready-to-show', () => {
+          app.focus({ steal: true });
+          this.windows.signOnWindow?.focus();
+        });
+        if (this.latestLinkUri === null) {
+          void this.startLink().catch((error: unknown) => {
+            console.error(`[link] could not generate a linking code: ${describe(error)}`);
+          });
+        }
         return;
       }
 
+      if (this.account !== null && this.account !== number) {
+        // A different account than the one whose events may be buffered.
+        this.selfId = null;
+        this.pendingReceives.length = 0;
+      }
       this.account = number;
       this.setState('linked');
-      // Order matters: the ACI has to be known before any send, and `listAccounts` does not
-      // carry it (see resolveSelfId).
+      // Order matters: the ACI has to be known before any receive can be attributed or any
+      // send made, and `listAccounts` does not carry it (see resolveSelfId).
       await this.resolveSelfId();
+      if (this.selfId === null) {
+        console.error("[bring-up] could not resolve this account's ACI; receives stay buffered");
+      } else {
+        this.flushPendingReceives();
+      }
       // Roster first: group member names are resolved against contacts, so syncing groups
       // against an empty buddies table would name every member by a truncated ACI.
       await this.syncRoster();
       await this.syncSignalGroups();
-    } catch {
+    } catch (error) {
+      console.error(`[bring-up] ${describe(error)}`);
+      if (isAccountGoneError(error)) {
+        void this.onAccountLost();
+        return;
+      }
       this.setState('daemon-down');
+    }
+  }
+
+  /** Set while a lost account is being recovered, so a burst of failures restarts once. */
+  private recoveringAccount = false;
+
+  /**
+   * This computer stopped being a linked device — removed from the phone, or deregistered.
+   *
+   * A running daemon keeps failing on the stale account; a fresh one drops it, reports no
+   * accounts, and so leads bring-up straight to the sign-on window with a new QR code.
+   */
+  private async onAccountLost(): Promise<void> {
+    if (this.recoveringAccount) return;
+    this.recoveringAccount = true;
+    console.error('[link] this computer is no longer linked; restarting signal-cli to relink');
+    this.account = null;
+    this.selfId = null;
+    this.pendingReceives.length = 0;
+    this.setState('unlinked');
+    try {
+      await this.daemon.restart();
+    } finally {
+      this.recoveringAccount = false;
     }
   }
 
@@ -336,23 +425,55 @@ export class AppService {
   // Inbound
   // -------------------------------------------------------------------------
 
+  /**
+   * Receives that arrived before the account's own ACI was known.
+   *
+   * Under `--receive-mode on-connection` the daemon starts pushing the moment the socket
+   * connects — and the first thing it pushes is everything that queued up while the app was
+   * closed. The ACI is only known a couple of round trips later. These used to be dropped, and
+   * since the daemon has already acknowledged them to the server and keeps no store, that was
+   * every message received while the app was shut, lost for good on every launch.
+   */
+  private readonly pendingReceives: unknown[] = [];
+
   private onReceive(params: unknown): void {
     const selfId = this.selfId;
-    if (selfId === null) return;
+    if (selfId === null) {
+      if (this.pendingReceives.length < MAX_PENDING_RECEIVES) {
+        this.pendingReceives.push(params);
+      } else {
+        console.error('[receive] buffer full before bring-up finished; dropping a receive');
+      }
+      return;
+    }
+    this.processReceive(params, selfId);
+  }
 
+  /** Applies buffered receives in arrival order. Synchronous, so nothing can interleave. */
+  private flushPendingReceives(): void {
+    const selfId = this.selfId;
+    if (selfId === null) return;
+    const pending = this.pendingReceives.splice(0);
+    for (const params of pending) this.processReceive(params, selfId);
+  }
+
+  private processReceive(params: unknown, selfId: string): void {
     let events: DomainEvent[];
     try {
       events = parseReceive(params, { selfId });
-    } catch {
-      // A malformed envelope must never take down message delivery.
+    } catch (error) {
+      // A malformed envelope must never take down message delivery — but it must not vanish
+      // without a trace either.
+      console.error(`[receive] could not parse an envelope: ${describe(error)}`);
       return;
     }
 
     for (const event of events) {
       try {
         this.applyEvent(event);
-      } catch {
+      } catch (error) {
         // Likewise: one bad event does not stop the rest of the batch.
+        console.error(`[receive] could not apply a ${event.type} event: ${describe(error)}`);
       }
     }
   }
@@ -462,11 +583,21 @@ export class AppService {
         return;
       }
 
-      case 'sync-read':
+      case 'sync-read': {
+        // Read on the phone or another device: clear the unread count here too, or the buddy
+        // list and Dock badge keep nagging about messages the user has already seen.
+        const conversations = new Set<ConversationId>();
         for (const target of event.targets) {
           this.store.messages.setReceiptByTimestamp(target.senderId, target.sentAt, 'read');
+          const message = this.store.messages.getMessageByNaturalKey(
+            target.senderId,
+            target.sentAt
+          );
+          if (message !== null) conversations.add(message.conversationId);
         }
+        for (const conversationId of conversations) this.markRead(conversationId);
         return;
+      }
     }
   }
 
@@ -504,9 +635,37 @@ export class AppService {
     }
   }
 
+  /** True when the user has blocked this sender or this room. */
+  private isBlocked(event: IncomingMessageEvent): boolean {
+    if (event.outgoing) return false;
+    if (this.store.roster.getBuddy(event.senderId)?.blocked === true) return true;
+    return (
+      isGroupConversation(event.conversationId) &&
+      this.store.signalGroups.getGroup(event.conversationId)?.blocked === true
+    );
+  }
+
   private applyIncomingMessage(event: IncomingMessageEvent): void {
     const messageId = deriveMessageId(event.senderId, event.sentAt);
+
+    if (this.isBlocked(event)) {
+      // Blocked means discarded, as on the phone. The daemon has already written any media to
+      // disk; ingesting it as view-once shreds that copy and keeps nothing.
+      for (const raw of event.attachments) {
+        this.store.attachments.ingest(messageId, toAttachment(raw, true));
+      }
+      return;
+    }
+
     this.backfillNames(event);
+
+    // A conversation's first-ever message, from someone not pinned — a stranger, in effect.
+    // Signal shows these as message requests; here they get a notification and a row in the
+    // buddy list, but do not throw a window onto the screen uninvited.
+    const isFirstContact =
+      !event.outgoing &&
+      this.store.messages.countMessages(event.conversationId) === 0 &&
+      !this.store.shelves.listShelved().some((entry) => entry.id === event.conversationId);
 
     // View-once media is never persisted (SPEC.md §8). `ingest` returns null for it and shreds
     // the daemon's own copy, which is written to disk before we ever see this envelope.
@@ -547,16 +706,70 @@ export class AppService {
         this.pushMessage(event.conversationId, message);
 
         if (!event.outgoing) {
-          if (this.windows.hasIm(event.conversationId)) {
+          const open = this.windows.imWindow(event.conversationId);
+          const focused = open?.isFocused() === true;
+          if (open !== null) {
             this.windows.flash(event.conversationId);
-          } else {
+          } else if (this.openOnIncoming && !isFirstContact) {
             // SPEC.md §9 — opening on an incoming message was a preference in AIM, and is
             // wired as one here.
-            if (this.openOnIncoming) this.windows.openIm(event.conversationId);
+            this.windows.openIm(event.conversationId);
           }
+          if (!focused) this.announce(event.conversationId, message, event.viewOnce);
         }
       }
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Attention: unread counts, Dock badge, notifications, sounds
+  // -------------------------------------------------------------------------
+
+  /** Unread inbound messages per conversation, since the user last looked at it. */
+  private readonly unread = new Map<ConversationId, number>();
+
+  /** Clears a conversation's unread count — read here, or read on another device. */
+  markRead(conversationId: ConversationId): void {
+    if (this.unread.delete(conversationId)) this.updateBadge();
+    const buddyList = this.windows.buddyListWindow;
+    if (buddyList !== null) buddyList.webContents.send(PUSH.read, conversationId);
+  }
+
+  private updateBadge(): void {
+    let total = 0;
+    for (const count of this.unread.values()) total += count;
+    app.dock?.setBadge(total > 0 ? String(total) : '');
+  }
+
+  /**
+   * Tells the user about a message they are not looking at.
+   *
+   * A disappearing message's notification carries no text: Notification Center keeps its own
+   * copy, which would outlive the timer in exactly the way the attachment warning describes.
+   */
+  private announce(conversationId: ConversationId, message: Message, viewOnce: boolean): void {
+    this.unread.set(conversationId, (this.unread.get(conversationId) ?? 0) + 1);
+    this.updateBadge();
+    playSound('receive');
+
+    if (!Notification.isSupported()) return;
+    const sender = this.store.roster.displayNameFor(message.senderId);
+    const room = isGroupConversation(conversationId)
+      ? this.store.signalGroups.getGroup(conversationId)?.name
+      : undefined;
+    const title = room !== undefined ? `${sender} in ${room}` : sender;
+    let body: string;
+    if (message.expiresAt !== null) body = 'New disappearing message';
+    else if (viewOnce) body = 'Sent a view-once message — open it on your phone';
+    else if (message.body !== null && message.body !== '') body = message.body;
+    else if (message.attachments.length > 0) body = 'Sent a file';
+    else body = 'New message';
+
+    const notification = new Notification({ title, body, silent: true });
+    notification.on('click', () => {
+      this.windows.openIm(conversationId);
+    });
+    notification.show();
   }
 
   /** SPEC.md §9: "Incoming message with no window open: open one. Make this a user preference." */
@@ -694,18 +907,30 @@ export class AppService {
       if (attachments !== undefined && attachments.length > 0) params.attachment = attachments;
 
       const result = await this.rpc.call('send', params);
-      const record =
-        typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : null;
-      const timestamp = asNumber(record?.timestamp) ?? Date.now();
+      const summary = summarizeSendResults(result);
+      const timestamp = summary.timestamp ?? Date.now();
 
       const message = this.store.messages.markOutboundSent(row.id, timestamp, selfId);
       this.pushMessage(conversationId, message);
+      playSound('send');
+
+      // The call succeeds as long as *anyone* got the message. In a group, the members who did
+      // not are only visible here — say so in the conversation rather than showing "sent".
+      if (summary.failures.length > 0) {
+        const who = summary.failures
+          .map((failure) => {
+            const id = failure.uuid ?? failure.number ?? 'someone';
+            const name = this.store.roster.displayNameFor(id);
+            return `${name} (${describeSendFailure(failure.type)})`;
+          })
+          .join(', ');
+        const notice = this.store.messages.postNotice(conversationId, `Not delivered to ${who}.`);
+        this.pushMessage(conversationId, notice);
+      }
       return message.id;
     } catch (error) {
-      this.store.messages.markOutboundFailed(
-        row.id,
-        error instanceof Error ? error.message : String(error)
-      );
+      this.store.messages.markOutboundFailed(row.id, describe(error));
+      if (isAccountGoneError(error)) void this.onAccountLost();
       throw error;
     }
   }
@@ -930,34 +1155,159 @@ export class AppService {
     return this.store.roster;
   }
 
-  /** Starts the linking flow and returns the URI to render as a QR code. */
-  async startLink(deviceName: string): Promise<string> {
-    this.setState('linking');
-    const result = await this.rpc.call('startLink');
-    const record =
-      typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : null;
-    const uri = asString(record?.deviceLinkUri);
-    if (uri === null) throw new Error('daemon did not return a device link URI');
+  /** The QR payload currently on offer, so a sign-on window opened late can still draw it. */
+  private latestLinkUri: string | null = null;
+  /** Bumped per code, so a superseded code's failure cannot clobber a newer one's state. */
+  private linkGeneration = 0;
 
+  get linkUri(): string | null {
+    return this.latestLinkUri;
+  }
+
+  /**
+   * Starts the linking flow and returns the URI to render as a QR code.
+   *
+   * Every call issues a fresh code; an earlier code that is still pending may also complete,
+   * and a scan of either is accepted.
+   */
+  async startLink(deviceName: string = DEVICE_NAME): Promise<string> {
+    const generation = ++this.linkGeneration;
+    this.setState('linking');
+
+    let uri: string | null;
+    try {
+      const result = await this.rpc.call('startLink');
+      const record =
+        typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : null;
+      uri = asString(record?.deviceLinkUri);
+      if (uri === null) throw new Error('daemon did not return a device link URI');
+    } catch (error) {
+      if (generation === this.linkGeneration) this.setState('unlinked');
+      throw error;
+    }
+
+    this.latestLinkUri = uri;
+    // Never log the URI itself: it carries the provisioning key.
+    console.error('[link] linking code ready; waiting for the phone to scan it');
     // Pushed as well as returned: a relink rotates the URI, and the sign-on window has to
     // redraw its QR without reloading.
     this.windows.broadcast(PUSH.linkUri, uri);
 
-    // finishLink blocks until the primary device responds, so it is deliberately not awaited
+    // finishLink blocks until the phone scans the code, so it is deliberately not awaited
     // here — the renderer shows the QR while this resolves in the background.
     void this.rpc
-      .call('finishLink', { deviceLinkUri: uri, deviceName })
-      .then(async () => {
-        await this.onRpcConnected();
+      .call('finishLink', { deviceLinkUri: uri, deviceName }, { timeoutMs: LINK_TIMEOUT_MS })
+      .then(() => {
+        this.latestLinkUri = null;
+        this.linkGeneration += 1;
+        // The daemon subscribes a connection only to the accounts that existed when it opened,
+        // so the new account would receive nothing on this one. Reconnecting re-runs bring-up
+        // (listAccounts → ACI → roster → groups) on a connection that includes it.
+        this.rpc.reconnect();
         this.windows.closeSignOn();
         this.windows.openBuddyList();
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (generation !== this.linkGeneration) return; // a newer code is on screen
+        console.error(`[link] ${describe(error)}`);
+        this.latestLinkUri = null;
         this.setState('unlinked');
+        // An unscanned code expires. While someone is looking at the sign-on window, replace
+        // it rather than leaving a code on screen that can no longer work.
+        const expired =
+          error instanceof RpcTimeoutError || /time ?out|timed out|closed/i.test(describe(error));
+        if (expired && this.windows.signOnWindow !== null) {
+          setTimeout(() => {
+            if (generation !== this.linkGeneration) return;
+            void this.startLink(deviceName).catch(() => undefined);
+          }, 1_000);
+        }
       });
 
     return uri;
   }
+
+  /** Stops signal-cli and starts a fresh one. The sign-on window's "restart" action. */
+  async restartService(): Promise<void> {
+    this.setState('daemon-down');
+    await this.daemon.restart();
+  }
+
+  /**
+   * Signs this computer off the account and erases everything it stored.
+   *
+   * A linked device cannot remove itself from the account — only the phone can — so this
+   * deletes signal-cli's local credentials for the account (the part that grants access), then
+   * this app's own database, key and attachment cache, and relaunches to the sign-on window.
+   * The dialog tells the user to finish the job on the phone.
+   */
+  async signOff(): Promise<boolean> {
+    const parent = this.windows.buddyListWindow;
+    const options = {
+      type: 'warning' as const,
+      buttons: ['Cancel', 'Sign Off and Erase'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Sign off',
+      message: 'Sign off and erase this computer’s copy of your account?',
+      detail:
+        'This deletes the Signal credentials stored on this computer, every message and file ' +
+        'this app has saved, and its encryption key. It cannot be undone.\n\n' +
+        'Afterwards, remove “AIMgnal” from Settings › Linked Devices on your phone.',
+    };
+    const answer =
+      parent === null
+        ? await dialog.showMessageBox(options)
+        : await dialog.showMessageBox(parent, options);
+    if (answer.response !== 1) return false;
+
+    if (this.account !== null) {
+      try {
+        await this.rpc.call('deleteLocalAccountData', {
+          account: this.account,
+          ignoreRegistered: true,
+        });
+      } catch (error) {
+        console.error(`[sign-off] could not delete signal-cli account data: ${describe(error)}`);
+      }
+    }
+
+    await this.stop();
+    rmSync(join(this.userDataDir, STORE_SUBDIR), { recursive: true, force: true });
+    rmSync(join(this.userDataDir, ATTACHMENTS_SUBDIR), { recursive: true, force: true });
+    app.relaunch();
+    app.exit(0);
+    return true;
+  }
+
+  /** The conversation a message belongs to, for checking which window may act on it. */
+  conversationOfMessage(messageId: string): ConversationId | null {
+    return this.store.messages.getMessage(messageId)?.conversationId ?? null;
+  }
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Plays one of the three message sounds (SPEC.md §9) with macOS `afplay`.
+ *
+ * The main process has no audio API and the sound must play with no window open. Packaged
+ * builds unpack `resources/sounds` from the asar (see electron-builder.yml) because `afplay`
+ * cannot read inside an archive.
+ */
+function playSound(name: 'receive' | 'send'): void {
+  const file = join(
+    app.getAppPath().replace(/app\.asar$/, 'app.asar.unpacked'),
+    'resources',
+    'sounds',
+    `${name}.wav`
+  );
+  if (!existsSync(file)) return;
+  const child = spawn('/usr/bin/afplay', [file], { stdio: 'ignore', detached: true });
+  child.on('error', () => undefined);
+  child.unref();
 }
 
 // ---------------------------------------------------------------------------

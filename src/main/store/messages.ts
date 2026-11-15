@@ -167,6 +167,9 @@ export interface EnqueueOutboundInput {
   now?: number;
 }
 
+/** Author of app-generated notice rows. Not an ACI, so it can never collide with a person. */
+export const SYSTEM_SENDER_ID = 'aimgnal:system';
+
 export interface MessageStoreOptions {
   /** Sweeper period. Default 10s. */
   sweepIntervalMs?: number;
@@ -180,6 +183,13 @@ export interface MessageStore {
     input: PersistMessageInput,
     acknowledge: (message: Message, inserted: boolean) => T
   ): T;
+
+  /**
+   * Writes an app-generated line into a conversation (`kind: 'system'`), such as "not delivered
+   * to Alex". Authored by {@link SYSTEM_SENDER_ID}, never by a real account, and never given an
+   * expiry: a notice that something went wrong must not vanish before it is read.
+   */
+  postNotice(conversationId: ConversationId, body: string, at?: number): Message;
 
   // -- reads (all expiry-safe) --------------------------------------------
   getMessages(
@@ -703,6 +713,28 @@ export function createMessageStore(
 
   const store: MessageStore = {
     persistInboundThenAck,
+
+    postNotice(conversationId, body, at = now()) {
+      // A message's identity is (sender_id, sent_at), so a notice must claim a free slot.
+      const taken = raw
+        .prepare(`SELECT 1 FROM messages WHERE sender_id = ? AND sent_at = ?`)
+        .pluck<number>();
+      let sentAt = at;
+      while (taken.get(SYSTEM_SENDER_ID, sentAt) === 1) sentAt += 1;
+      return persistInboundThenAck(
+        {
+          conversationId,
+          senderId: SYSTEM_SENDER_ID,
+          outgoing: false,
+          body,
+          sentAt,
+          receivedAt: at,
+          expiresAt: null,
+          kind: 'system',
+        },
+        (message) => message
+      );
+    },
 
     // -- reads -------------------------------------------------------------
 

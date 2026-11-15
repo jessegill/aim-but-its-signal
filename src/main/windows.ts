@@ -197,6 +197,32 @@ export class WindowManager {
     return window;
   }
 
+  get signOnWindow(): BrowserWindow | null {
+    return this.signOn !== null && !this.signOn.isDestroyed() ? this.signOn : null;
+  }
+
+  /**
+   * Which window a request came from. IPC handlers use this to refuse requests from the wrong
+   * window — an IM window may only act on its own conversation — so a renderer that had been
+   * compromised could not read or send in every other conversation through it.
+   */
+  ownerOf(
+    contents: Electron.WebContents
+  ):
+    | { kind: 'im'; conversationId: ConversationId }
+    | { kind: 'buddylist' }
+    | { kind: 'signon' }
+    | null {
+    if (this.buddyListWindow?.webContents === contents) return { kind: 'buddylist' };
+    if (this.signOnWindow?.webContents === contents) return { kind: 'signon' };
+    for (const [conversationId, managed] of this.imWindows) {
+      if (!managed.window.isDestroyed() && managed.window.webContents === contents) {
+        return { kind: 'im', conversationId };
+      }
+    }
+    return null;
+  }
+
   closeSignOn(): void {
     if (this.signOn !== null && !this.signOn.isDestroyed()) this.signOn.close();
     this.signOn = null;

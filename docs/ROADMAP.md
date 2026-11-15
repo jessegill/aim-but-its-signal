@@ -6,7 +6,7 @@ What is next, and what each item actually requires. `docs/STATE.md` records wher
 Ordering within a section is rough priority. An item is done when it works against the live
 account, not when it compiles.
 
-Last updated: 2026-08-01.
+Last updated: 2026-11-14.
 
 ---
 
@@ -150,10 +150,18 @@ Recorded in `docs/STATE.md` under Known gaps; repeated here only as work items.
       `electron-builder.yml`, including the two entitlements the hardened runtime needs — V8
       wants `allow-unsigned-executable-memory`, and spawning signal-cli wants
       `disable-library-validation`.
+- [x] **Relink from the app.** The sign-on window generates its own code, replaces it when it
+      expires, and *File → Sign Off and Relink…* erases this computer's copy of the account.
+      Exercised live 2026-11-14.
+- [x] **Notifications, sounds and a Dock badge.** Disappearing messages notify without text.
 - [ ] **Say so when signal-cli is missing.** `resolveSignalCli()` falls back to the bare name and
       the app reports `daemon-down`, which is honest but indistinguishable from a crashed daemon.
       A first-run check that names the actual problem — and links to the install — is the
       difference between "broken" and "one brew install away".
+- [ ] **A preferences window** for sounds, notifications and open-on-incoming, which are
+      hard-wired on.
+- [ ] **Message requests.** First contact currently means "no history, not pinned"; read
+      Signal's own acceptance state and offer Accept / Block.
 - [ ] **Read receipts as a preference.** Deliberately never sent (they leak read state for every
       message). The decision was "off until it is a preference, not a default", so the remaining
       work is the preference, not the sending.

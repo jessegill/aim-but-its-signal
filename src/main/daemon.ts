@@ -11,7 +11,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { accessSync, chmodSync, constants, mkdirSync, rmSync } from 'node:fs';
+import { accessSync, chmodSync, constants, lstatSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 
@@ -73,8 +73,27 @@ export function defaultSocketPath(): string {
     `aim-${String(process.getuid?.() ?? 0)}`
   );
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  assertPrivateDir(dir);
   chmodSync(dir, 0o700);
   return join(dir, 'signal.sock');
+}
+
+/**
+ * The directory name is predictable and lives in a shared `/tmp`, so on a multi-user Mac
+ * another account could create it first — as a directory it owns, or as a symlink to one.
+ * `mkdirSync({ recursive: true })` succeeds silently on either. Refuse anything that is not a
+ * real directory owned by us, rather than putting a full-access socket somewhere another user
+ * controls.
+ */
+export function assertPrivateDir(dir: string): void {
+  const stat = lstatSync(dir);
+  const uid = process.getuid?.();
+  if (stat.isSymbolicLink() || !stat.isDirectory() || (uid !== undefined && stat.uid !== uid)) {
+    throw new Error(
+      `The socket directory ${dir} is not a private directory owned by this user. ` +
+        'Remove it and start the app again.'
+    );
+  }
 }
 
 /**
@@ -216,6 +235,13 @@ export class SignalDaemon extends EventEmitter {
       }, this.backoffMs);
       this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
     });
+  }
+
+  /** Stops the daemon and starts a fresh one — the user-facing "restart the service". */
+  async restart(): Promise<void> {
+    await this.stop();
+    this.backoffMs = this.minBackoffMs;
+    this.start();
   }
 
   /** Stops supervising and terminates the daemon. */

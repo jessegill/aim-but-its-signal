@@ -95,6 +95,22 @@ export class RpcClient extends EventEmitter {
    */
   connect(): Promise<void> {
     this.closed = false;
+    // Already connected, or the reconnect loop already has a socket opening. A second socket
+    // here meant a second connection to the daemon: it subscribes each connection to receives
+    // separately, so every message arrived twice, and bring-up ran twice in parallel (two QR
+    // codes generated, the first immediately superseded).
+    if (this.socket !== null && !this.socket.destroyed) {
+      if (this.connected) return Promise.resolve();
+      const pending = this.socket;
+      return new Promise((resolve, reject) => {
+        pending.once('connect', () => resolve());
+        pending.once('error', reject);
+      });
+    }
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     return new Promise((resolve, reject) => {
       let settled = false;
       const onReady = (): void => {
@@ -248,8 +264,15 @@ export class RpcClient extends EventEmitter {
    * that unknown param names are silently ignored by signal-cli, so a typo is a no-op rather
    * than an error (docs/signal-cli-rpc.md §2); callers should treat param names as exact.
    */
-  call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  call(
+    method: string,
+    params: Record<string, unknown> = {},
+    options: { timeoutMs?: number } = {}
+  ): Promise<unknown> {
     const socket = this.socket;
+    // Most calls answer in milliseconds. A few — `finishLink` above all, which blocks until a
+    // human scans a QR code — legitimately take minutes, and the default would fail them.
+    const timeoutMs = options.timeoutMs ?? this.requestTimeoutMs;
     if (socket === null || !this.connected) {
       return Promise.reject(new RpcNotConnectedError(method));
     }
@@ -260,8 +283,8 @@ export class RpcClient extends EventEmitter {
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new RpcTimeoutError(method, this.requestTimeoutMs));
-      }, this.requestTimeoutMs);
+        reject(new RpcTimeoutError(method, timeoutMs));
+      }, timeoutMs);
 
       this.pending.set(id, { method, resolve, reject, timer });
 
@@ -273,6 +296,17 @@ export class RpcClient extends EventEmitter {
         }
       });
     });
+  }
+
+  /**
+   * Drops the current connection and lets the reconnect loop open a fresh one, which re-runs
+   * everything listening for 'connected'. Used after linking: the daemon only auto-subscribes
+   * a connection to the accounts that existed when it was opened, so a freshly linked account
+   * receives nothing until the connection is renewed.
+   */
+  reconnect(): void {
+    if (this.closed) return;
+    this.socket?.destroy();
   }
 
   /** Stops reconnecting and tears the connection down. */

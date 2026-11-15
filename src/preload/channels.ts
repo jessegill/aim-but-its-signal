@@ -38,6 +38,9 @@ export const REQUEST_CHANNELS = [
 
   'connection:get',
   'connection:startLink',
+  'connection:getLinkUri',
+  'connection:restartService',
+  'connection:signOff',
 
   'self:get',
 ] as const satisfies readonly IpcRequestChannel[];
@@ -47,6 +50,7 @@ export const EVENT_CHANNELS = [
   'im:typing',
   'im:receipt',
   'im:removed',
+  'im:read',
   'roster:updated',
   'connection:state',
   'connection:linkUri',

@@ -144,16 +144,18 @@ export function SignOnWindow({
                 <input
                   className="aim-input"
                   value={deviceName ?? ''}
-                  placeholder="Desktop"
+                  placeholder="AIMgnal"
                   onChange={(e) => onDeviceNameChange?.(e.target.value)}
                 />
               </label>
 
-              <Checkbox
-                label="Keep me signed on"
-                checked={rememberDevice}
-                onChange={(e) => onRememberDeviceChange?.(e.currentTarget.checked)}
-              />
+              {onRememberDeviceChange ? (
+                <Checkbox
+                  label="Keep me signed on"
+                  checked={rememberDevice}
+                  onChange={(e) => onRememberDeviceChange(e.currentTarget.checked)}
+                />
+              ) : null}
             </>
           ) : (
             <div className="aim-signon__instructions">{label.detail}</div>

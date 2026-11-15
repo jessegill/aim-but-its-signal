@@ -34,45 +34,63 @@ import {
 
 const PRODUCT_NAME = 'Instant Messenger';
 
-/**
- * The linking URI.
- *
- * CONTRACT GAP: src/shared/types.ts has no channel that carries it, so it is read from the
- * window's query string — the same mechanism createImWindow already uses for conversationId.
- * Main can pass `?linkingUri=…` (or `?deviceLinkUri=…`) when it opens this window. A pushed
- * channel is needed for the real flow, because the URI is regenerated on every relink and the
- * code has to be redrawn without reloading the window.
- */
-function initialLinkingUri(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('linkingUri') ?? params.get('deviceLinkUri');
-}
-
 export function App(): JSX.Element {
   const [state, setState] = React.useState<ConnectionState>('linking');
-  const [linkingUri] = React.useState<string | null>(initialLinkingUri);
-  const [deviceName, setDeviceName] = React.useState('Desktop');
-  const [rememberDevice, setRememberDevice] = React.useState(true);
+  const [linkingUri, setLinkingUri] = React.useState<string | null>(null);
+  const [deviceName, setDeviceName] = React.useState('AIMgnal');
   const [windowActive, setWindowActive] = React.useState(() => document.hasFocus());
   const [notice, setNotice] = React.useState<string | null>(hasBridge() ? null : BRIDGE_MISSING);
+
+  /** Asks main for a fresh code. The URI also arrives on `connection:linkUri`. */
+  const requestCode = React.useCallback((name: string): void => {
+    setLinkingUri(null);
+    void (async () => {
+      try {
+        setLinkingUri(await invoke('connection:startLink', name));
+        setNotice(null);
+      } catch (err) {
+        setNotice(describeFailure('connection:startLink', err));
+      }
+    })();
+  }, []);
 
   React.useEffect(() => {
     void (async () => {
       try {
-        setState(await invoke('connection:get'));
+        const current = await invoke('connection:get');
+        setState(current);
         setNotice(null);
+        // Main generates a code itself when it finds no linked account, usually before this
+        // window has loaded — so ask for the one on offer, and only request a new one if
+        // there is none.
+        const uri = await invoke('connection:getLinkUri');
+        if (uri !== null) setLinkingUri(uri);
+        else if (current === 'unlinked') requestCode('AIMgnal');
       } catch (err) {
         // Worth saying out loud here: this window exists to explain the connection, so a
         // window that cannot read it must not look like a window that read "fine".
         setNotice(describeFailure('connection:get', err));
       }
     })();
-  }, []);
+  }, [requestCode]);
 
   useIpcEvent('connection:state', (next) => {
     setState(next);
     setNotice(null);
   });
+
+  // A code rotates on every relink and expires if left unscanned; main pushes each new one.
+  useIpcEvent('connection:linkUri', (uri) => {
+    setLinkingUri(uri);
+    setNotice(null);
+  });
+
+  const restartService = React.useCallback((): void => {
+    setNotice('Restarting the messaging service…');
+    void invoke('connection:restartService').catch((err: unknown) => {
+      setNotice(describeFailure('connection:restartService', err));
+    });
+  }, []);
 
   React.useEffect(() => {
     const onFocus = (): void => setWindowActive(true);
@@ -109,10 +127,8 @@ export function App(): JSX.Element {
           linkingUri={linkingUri}
           deviceName={deviceName}
           onDeviceNameChange={setDeviceName}
-          rememberDevice={rememberDevice}
-          onRememberDeviceChange={setRememberDevice}
-          onRelink={() => setNotice(RELINK_NOTICE)}
-          onRestartService={() => setNotice(RESTART_NOTICE)}
+          onRelink={() => requestCode(deviceName)}
+          onRestartService={restartService}
           onMinimize={windowChrome.minimize}
           onClose={windowChrome.close}
         />
@@ -129,11 +145,3 @@ export function App(): JSX.Element {
     </div>
   );
 }
-
-/* Both actions need a main-process capability that no channel in src/shared/types.ts exposes.
-   The buttons stay visible and say what is missing — SPEC.md §8 requires a path back to a
-   working link, and hiding the control would hide the gap too. */
-const RELINK_NOTICE =
-  'Generating a new linking code needs a main-process channel (startLink) — not wired yet.';
-const RESTART_NOTICE =
-  'Restarting the background messaging service is a main-process action — not wired yet.';

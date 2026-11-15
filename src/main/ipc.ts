@@ -39,11 +39,42 @@ function optionalStringArray(value: unknown, name: string): string[] | undefined
   return value as string[];
 }
 
+/**
+ * Refuses a conversation-scoped request unless it came from that conversation's own window.
+ *
+ * The preload allowlist limits *which* channels a renderer can reach, not *what* it can do on
+ * them. Without this, any window could read or send in every conversation by naming its id.
+ */
+function requireImSender(
+  service: AppService,
+  event: Electron.IpcMainInvokeEvent,
+  conversationId: string
+): void {
+  const owner = service.windows.ownerOf(event.sender);
+  if (owner?.kind !== 'im' || owner.conversationId !== conversationId) {
+    throw new Error('this window may not act on that conversation');
+  }
+}
+
+/** Refuses a request from anything but the listed kinds of window. */
+function requireSenderKind(
+  service: AppService,
+  event: Electron.IpcMainInvokeEvent,
+  ...kinds: ('im' | 'buddylist' | 'signon')[]
+): void {
+  const owner = service.windows.ownerOf(event.sender);
+  if (owner === null || !kinds.includes(owner.kind)) {
+    throw new Error('this window may not make that request');
+  }
+}
+
 export function registerIpc(service: AppService): void {
   // -- conversations --------------------------------------------------------
 
-  ipcMain.handle('im:getInitial', (_event, conversationId: unknown) => {
-    return service.getInitial(requireString(conversationId, 'conversationId'));
+  ipcMain.handle('im:getInitial', (event, conversationId: unknown) => {
+    const id = requireString(conversationId, 'conversationId');
+    requireImSender(service, event, id);
+    return service.getInitial(id);
   });
 
   // Subscription is implicit: the window manager already routes pushes by conversation, so
@@ -54,8 +85,9 @@ export function registerIpc(service: AppService): void {
 
   ipcMain.handle(
     'im:send',
-    async (_event, conversationId: unknown, body: unknown, attachments: unknown) => {
+    async (event, conversationId: unknown, body: unknown, attachments: unknown) => {
       const id = requireString(conversationId, 'conversationId');
+      requireImSender(service, event, id);
       const files = optionalStringArray(attachments, 'attachments');
       // A caption is optional when there is a file; a message with neither is not a message.
       if (typeof body !== 'string') throw new TypeError('body must be a string');
@@ -70,6 +102,7 @@ export function registerIpc(service: AppService): void {
   // -- attachments ----------------------------------------------------------
 
   ipcMain.handle('dialog:pickAttachments', async (event, kind: unknown) => {
+    requireSenderKind(service, event, 'im');
     const parent = BrowserWindow.fromWebContents(event.sender);
     // "All Files" stays available in both cases — the filter picks the default, it does not
     // restrict what can be attached, and main runs the same checks on whatever comes back.
@@ -123,22 +156,25 @@ export function registerIpc(service: AppService): void {
     return { files, rejected };
   });
 
-  ipcMain.handle('attachment:open', async (_event, messageId: unknown, attachmentId: unknown) => {
-    return await service.openAttachment(
-      requireString(messageId, 'messageId'),
-      requireString(attachmentId, 'attachmentId')
-    );
+  ipcMain.handle('attachment:open', async (event, messageId: unknown, attachmentId: unknown) => {
+    const id = requireString(messageId, 'messageId');
+    const conversationId = service.conversationOfMessage(id);
+    if (conversationId !== null) requireImSender(service, event, conversationId);
+    return await service.openAttachment(id, requireString(attachmentId, 'attachmentId'));
   });
 
-  ipcMain.handle('im:markRead', (_event, conversationId: unknown) => {
-    requireString(conversationId, 'conversationId');
+  ipcMain.handle('im:markRead', (event, conversationId: unknown) => {
+    const id = requireString(conversationId, 'conversationId');
+    requireImSender(service, event, id);
+    service.markRead(id);
     // TODO(read receipts): sending read receipts is user-visible and leaks read state, so it
     // stays off until it is a preference rather than a default (see the note on
     // --send-read-receipts in docs/signal-cli-rpc.md).
   });
 
-  ipcMain.handle('im:setTyping', async (_event, conversationId: unknown, isTyping: unknown) => {
+  ipcMain.handle('im:setTyping', async (event, conversationId: unknown, isTyping: unknown) => {
     const id = requireString(conversationId, 'conversationId');
+    requireImSender(service, event, id);
     await service.setTyping(id, isTyping === true);
   });
 
@@ -205,10 +241,26 @@ export function registerIpc(service: AppService): void {
 
   ipcMain.handle('connection:get', () => service.connectionState);
 
-  ipcMain.handle('connection:startLink', async () => {
-    // Also the relink path (SPEC.md §8). The device name is what appears in the user's Linked
-    // Devices list on their phone.
-    return await service.startLink('AIMgnal');
+  ipcMain.handle('connection:startLink', async (event, deviceName: unknown) => {
+    // Also the relink path (SPEC.md §8). The name is what the phone's Linked Devices list shows.
+    requireSenderKind(service, event, 'signon', 'buddylist');
+    const name = typeof deviceName === 'string' ? deviceName.trim().slice(0, 50) : '';
+    return await service.startLink(name === '' ? undefined : name);
+  });
+
+  ipcMain.handle('connection:getLinkUri', (event) => {
+    requireSenderKind(service, event, 'signon');
+    return service.linkUri;
+  });
+
+  ipcMain.handle('connection:restartService', async (event) => {
+    requireSenderKind(service, event, 'signon', 'buddylist');
+    await service.restartService();
+  });
+
+  ipcMain.handle('connection:signOff', async (event) => {
+    requireSenderKind(service, event, 'buddylist');
+    return await service.signOff();
   });
 
   ipcMain.handle('self:get', () => service.selfAccount());

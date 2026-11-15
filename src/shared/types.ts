@@ -372,7 +372,16 @@ export interface IpcRequests {
    * Begins device linking and returns the `sgnl://linkdevice?…` URI to render as a QR code.
    * This is also the relink path — SPEC.md §8 requires a way to re-scan.
    */
-  'connection:startLink': () => string;
+  'connection:startLink': (deviceName?: string) => string;
+  /** The linking code currently on offer, or null — for a sign-on window that opened late. */
+  'connection:getLinkUri': () => string | null;
+  /** Stops and restarts signal-cli. */
+  'connection:restartService': () => void;
+  /**
+   * Erases this computer's copy of the account — signal-cli credentials, database, key and
+   * attachments — after a native confirmation, then relaunches. False if the user cancelled.
+   */
+  'connection:signOff': () => boolean;
 
   /** The local account, for the buddy-list banner and own-message attribution. */
   'self:get': () => SelfAccount | null;
@@ -402,6 +411,8 @@ export interface IpcEvents {
   'im:receipt': (conversationId: ConversationId, messageId: string, state: ReceiptState) => void;
   /** A message expired or was deleted for everyone; the renderer must drop it. */
   'im:removed': (conversationId: ConversationId, messageId: string) => void;
+  /** The conversation was read — here or on another device. Clears unread counts. */
+  'im:read': (conversationId: ConversationId) => void;
   'roster:updated': () => void;
   'connection:state': (state: ConnectionState) => void;
   /**

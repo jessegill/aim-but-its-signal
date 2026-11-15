@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime exceptions for AIMgnal. Electron's V8 needs the first two to run JavaScript
+  at all under the hardened runtime. The third lets the app load the SQLCipher native module
+  (better-sqlite3-multiple-ciphers) and Electron's own frameworks however they were signed.
+  Nothing here grants network, camera, file or keychain access beyond what any app has.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

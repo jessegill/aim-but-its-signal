@@ -9,7 +9,11 @@ productName: AIMgnal
 copyright: Copyright © 2026
 
 directories:
-  output: release
+  # Outside the repository on purpose. The repo lives in iCloud Drive, which tags every file in
+  # it with extended attributes (com.apple.fileprovider…, FinderInfo); codesign refuses to sign a
+  # bundle carrying them ("resource fork, Finder information, or similar detritus not allowed"),
+  # and iCloud re-adds them faster than they can be stripped. The .dmg lands here.
+  output: ${env.HOME}/Library/Caches/AIMgnal/release
   buildResources: resources
 
 files:
@@ -41,6 +45,9 @@ asarUnpack:
 # because this repository's path contains an apostrophe (see .npmrc).
 npmRebuild: false
 
+# Clears iCloud's extended attributes from the bundle before signing. See the script.
+afterPack: scripts/after-pack.cjs
+
 mac:
   category: public.app-category.social-networking
 
@@ -59,27 +66,25 @@ mac:
   icon: resources/icons/AIMgnal.icns
 
   # ---------------------------------------------------------------------------
-  # CODE SIGNING HOOK — NOT CONFIGURED YET
+  # Code signing and notarization
   # ---------------------------------------------------------------------------
-  # As written, output is UNSIGNED and UNNOTARIZED. It runs fine on the dev machine but
-  # Gatekeeper will block it on any other Mac ("app is damaged / cannot be opened").
+  # Signed with the "Developer ID Application" certificate in the login keychain (found
+  # automatically; set CSC_NAME to pick one if there are several) and notarized by Apple, so the
+  # .dmg opens on any Mac without a Gatekeeper warning.
   #
-  # To enable, replace the two lines below with:
+  # Notarization credentials come from a notarytool keychain profile, never from this file or
+  # the environment's plain text:
+  #   xcrun notarytool store-credentials AIMgnal-notary --apple-id … --team-id …
+  #   APPLE_KEYCHAIN_PROFILE=AIMgnal-notary npm run package
   #
-  #   identity: Developer ID Application: <Name> (<TEAMID>)
-  #   hardenedRuntime: true
-  #   gatekeeperAssess: false
-  #   entitlements: resources/entitlements.mac.plist
-  #   entitlementsInherit: resources/entitlements.mac.plist
-  #   notarize:
-  #     teamId: <TEAMID>
-  #
-  # and export APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID in the environment.
-  # The hardened runtime needs `com.apple.security.cs.allow-unsigned-executable-memory`
-  # for V8, and the app spawns signal-cli as a child process (SPEC.md §2) so it also needs
-  # `com.apple.security.cs.disable-library-validation`.
-  identity: null
-  notarize: false
+  # `npm run package:unsigned` builds without either, for a quick local test.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  notarize: true
 
 dmg:
   writeUpdateInfo: false
+  # Signed like the app; scripts/notarize-dmg.sh then notarizes and staples it.
+  sign: true

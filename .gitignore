@@ -45,6 +45,12 @@ signal-cli-data/
 *.asc
 *.gpg
 *.mobileprovision
+# Apple signing: the Developer ID certificate, its signing request, and any exported identity.
+# The .cer alone is not secret, but it is account-specific and has no place in a public repo.
+*.cer
+*.crt
+*.der
+*.certSigningRequest
 id_rsa
 id_ed25519
 .netrc

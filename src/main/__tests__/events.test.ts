@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 
 import { parseReceive } from '../events.ts';
 
-const SELF = 'c5d8da39-0000-0000-0000-000000000001';
+const SELF = '00000000-0000-4000-8000-000000000001';
 const PEER = 'aaaaaaaa-0000-0000-0000-00000000000b';
 const GROUP = 'Zm9vYmFyZ3JvdXBpZA==';
 

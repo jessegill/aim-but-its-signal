@@ -86,7 +86,18 @@ CONTENT_PATTERNS=(
   '"(registrationId|encryptedDeviceName)"[[:space:]]*:'
   '_auth(Token)?[[:space:]]*=[[:space:]]*[^[:space:]$]'   # npm registry credentials in .npmrc
   '(GITHUB|GH|NPM)_TOKEN[[:space:]]*=[[:space:]]*[A-Za-z0-9_-]{16,}'
+  # A real-looking phone number in E.164 form — an account identifier, and personal data.
+  # North American numbers: area code and exchange must start 2-9, and the fictional 555
+  # area code is allowed so documentation can show the shape (+15550001234). Elsewhere: any
+  # country code from 2-9 followed by 9-14 digits. Fixtures use +1000… or +1555….
+  '\+1([2-46-9][0-9]{2}|5([0-46-9][0-9]|5[0-46-9]))[2-9][0-9]{6}([^0-9]|$)'
+  '\+[2-9][0-9]{9,14}([^0-9]|$)'
 )
+
+# Local, never-committed denylist: one literal string per line (blank lines and # comments
+# ignored). For identifiers no generic pattern can recognise — this account's own ACI, its
+# phone number — so they are refused by exact match. Lives in .git/info/, which git never
+# tracks or pushes. CI has no copy; the patterns above are its net.
 
 # Files exempted from the *content* scan only. This script necessarily contains the
 # signatures it searches for; nothing else belongs here.
@@ -130,6 +141,8 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
   exit 2
 }
 cd "$REPO_ROOT" || exit 2
+# Resolved after the cd, because --git-path answers relative to the working directory.
+DENYLIST_FILE="$(git rev-parse --git-path info/check-secrets-denylist 2>/dev/null || true)"
 
 # ---------------------------------------------------------------------------
 # File list
@@ -214,6 +227,17 @@ for file in "${FILES[@]}"; do
 
   content="$(read_content "$file")"
   [ -z "$content" ] && continue
+
+  # ---- local exact-match denylist ----
+  if [ -n "$DENYLIST_FILE" ] && [ -f "$DENYLIST_FILE" ]; then
+    while IFS= read -r needle || [ -n "$needle" ]; do
+      case "$needle" in ''|'#'*) continue ;; esac
+      hit="$(printf '%s' "$content" | grep -InFm1 -- "$needle" 2>/dev/null)"
+      if [ -n "$hit" ]; then
+        report "$file:${hit%%:*}" "content matches an entry in the local denylist ($DENYLIST_FILE)"
+      fi
+    done < "$DENYLIST_FILE"
+  fi
 
   # grep -I skips binary payloads; run it once per pattern against the captured content.
   for pattern in "${CONTENT_PATTERNS[@]}"; do

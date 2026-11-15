@@ -71,3 +71,6 @@ coverage/
 # Logs
 *.log
 npm-debug.log*
+
+# Early design briefs and local agent config — kept on disk, out of the public repo.
+/AIM vibe /

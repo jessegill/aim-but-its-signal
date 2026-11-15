@@ -12,7 +12,9 @@ import { basename } from 'node:path';
 import { statSync } from 'node:fs';
 
 import { MAX_ATTACHMENT_BYTES } from '@shared/types';
-import type { PickedFile, RejectedFile } from '@shared/types';
+import type { PickedFile, RejectedFile, StagedFileResult } from '@shared/types';
+
+import { PRELOAD_CHANNELS } from '../preload/channels';
 
 import { guessContentType } from './store/index.ts';
 import type { AppService } from './service.ts';
@@ -66,6 +68,29 @@ function requireSenderKind(
   if (owner === null || !kinds.includes(owner.kind)) {
     throw new Error('this window may not make that request');
   }
+}
+
+/**
+ * The checks every attachment gets, however it was chosen: a regular file, readable, within
+ * Signal's size limit. Passing them makes the path sendable (see vendAttachmentPath).
+ */
+function inspectAndVend(service: AppService, path: string): StagedFileResult {
+  const name = basename(path);
+  let size: number;
+  try {
+    const stat = statSync(path);
+    if (!stat.isFile()) return { rejected: { name, reason: 'not a file' } };
+    size = stat.size;
+  } catch {
+    return { rejected: { name, reason: 'could not be read' } };
+  }
+  if (size > MAX_ATTACHMENT_BYTES) {
+    // Refused here rather than at send time: signal-cli's failure for an oversized file is a
+    // daemon error the user cannot act on.
+    return { rejected: { name, reason: 'larger than the 100 MB Signal allows' } };
+  }
+  service.vendAttachmentPath(path);
+  return { file: { path, name, size, contentType: guessContentType(name) } };
 }
 
 export function registerIpc(service: AppService): void {
@@ -130,30 +155,40 @@ export function registerIpc(service: AppService): void {
     const rejected: RejectedFile[] = [];
 
     for (const path of result.filePaths) {
-      const name = basename(path);
-      let size: number;
-      try {
-        const stat = statSync(path);
-        if (!stat.isFile()) {
-          rejected.push({ name, reason: 'not a file' });
-          continue;
-        }
-        size = stat.size;
-      } catch {
-        rejected.push({ name, reason: 'could not be read' });
-        continue;
-      }
-      if (size > MAX_ATTACHMENT_BYTES) {
-        // Refused here rather than at send time: signal-cli's failure for an oversized file is
-        // a daemon error the user cannot act on.
-        rejected.push({ name, reason: 'larger than the 100 MB Signal allows' });
-        continue;
-      }
-      service.vendAttachmentPath(path);
-      files.push({ path, name, size, contentType: guessContentType(name) });
+      const outcome = inspectAndVend(service, path);
+      if ('file' in outcome) files.push(outcome.file);
+      else rejected.push(outcome.rejected);
     }
 
     return { files, rejected };
+  });
+
+  // Preload-only (see PRELOAD_CHANNELS): a file dropped or pasted into an IM window.
+  ipcMain.handle(PRELOAD_CHANNELS.vendDropped, (event, path: unknown) => {
+    requireSenderKind(service, event, 'im');
+    return inspectAndVend(service, requireString(path, 'path'));
+  });
+
+  ipcMain.handle(PRELOAD_CHANNELS.stageBytes, (event, payload: unknown) => {
+    requireSenderKind(service, event, 'im');
+    const record =
+      typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>) : {};
+    const bytes = record.bytes;
+    if (!(bytes instanceof Uint8Array)) throw new TypeError('bytes must be a Uint8Array');
+    if (bytes.byteLength === 0) {
+      return { rejected: { name: 'image', reason: 'empty' } } satisfies StagedFileResult;
+    }
+    if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+      return {
+        rejected: { name: 'image', reason: 'larger than the 100 MB Signal allows' },
+      } satisfies StagedFileResult;
+    }
+    const path = service.stageBytes(
+      typeof record.name === 'string' ? record.name : '',
+      typeof record.type === 'string' ? record.type : '',
+      bytes
+    );
+    return inspectAndVend(service, path);
   });
 
   ipcMain.handle('attachment:open', async (event, messageId: unknown, attachmentId: unknown) => {

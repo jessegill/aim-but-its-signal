@@ -1779,3 +1779,147 @@
 .aim-root ::-webkit-scrollbar-corner {
   background: var(--xp-chrome);
 }
+
+/* --- Share dialog ("Send Picture") ---------------------------------------
+ * Opened by dropping or pasting a file into an IM window. A small modal
+ * window over the conversation, square and bevelled like everything else. */
+.aim-share__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  /* Just enough grey to read as a modal window, not a modern scrim. */
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.aim-share {
+  width: 100%;
+  max-width: 340px;
+  box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.4);
+}
+
+.aim-share__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  font-size: var(--size-ui);
+}
+
+.aim-share__preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 180px;
+  background: #fff;
+  border: 2px inset;
+}
+
+.aim-share__preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.aim-share__meta {
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aim-share__list {
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  max-height: 168px;
+  overflow-y: auto;
+  background: #fff;
+  border: 2px inset;
+}
+
+.aim-share__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 2px;
+}
+
+.aim-share__thumb {
+  flex: 0 0 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ink-dim);
+  background: #fff;
+}
+
+.aim-share__thumb img {
+  max-width: 34px;
+  max-height: 34px;
+  object-fit: contain;
+  display: block;
+}
+
+.aim-share__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aim-share__size {
+  flex: 0 0 auto;
+  color: var(--ink-dim);
+}
+
+.aim-share__remove {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  line-height: 12px;
+  font-size: 12px;
+  border: 1px outset;
+  background: inherit;
+  cursor: default;
+}
+
+.aim-share__description {
+  resize: none;
+  width: 100%;
+  font-family: var(--aim-font-ui);
+  font-size: var(--size-ui);
+}
+
+.aim-share__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+/* Shown while files are dragged over an IM window. */
+.aim-dropzone {
+  position: fixed;
+  inset: 4px;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  font-size: var(--size-ui);
+  font-weight: bold;
+  color: var(--xp-select);
+  background: rgba(216, 228, 248, 0.85);
+  outline: 2px dotted var(--xp-select);
+  outline-offset: -2px;
+}

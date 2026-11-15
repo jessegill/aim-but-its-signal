@@ -26,8 +26,9 @@ import type {
   SelfAccount,
 } from '@shared/types';
 import { spawn } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, extname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { SignalDaemon, defaultSocketPath, signalCliAttachmentsDir } from './daemon.ts';
@@ -181,7 +182,50 @@ export class AppService {
     });
   }
 
+  /**
+   * Where pasted images with no file behind them are written so signal-cli can read them.
+   * Emptied at start and stop; each file is deleted as soon as its send has been copied into
+   * the attachment cache.
+   */
+  private get stagingDir(): string {
+    return join(this.userDataDir, 'staging');
+  }
+
+  /** Writes pasted bytes to a private file and returns its path. Never vends it itself. */
+  stageBytes(name: string, type: string, bytes: Uint8Array): string {
+    const ext = extname(name) || IMAGE_EXTENSIONS[type] || '';
+    // The name is what the recipient sees; keep it plain. A screenshot arrives as "image.png".
+    const stem =
+      [...basename(name, extname(name))]
+        .filter((c) => c.charCodeAt(0) >= 0x20 && !'/\\:'.includes(c))
+        .join('')
+        .trim()
+        .slice(0, 80) || 'image';
+    const cleanStem = stem === 'image' ? 'Pasted Image' : stem;
+    const dir = join(this.stagingDir, randomBytes(8).toString('hex'));
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const path = join(dir, `${cleanStem}${ext}`);
+    writeFileSync(path, bytes, { mode: 0o600 });
+    return path;
+  }
+
+  private purgeStaging(): void {
+    rmSync(this.stagingDir, { recursive: true, force: true });
+  }
+
+  /** Deletes staged copies once a send no longer needs them. Leaves the user's own files alone. */
+  private releaseStaged(paths: readonly string[]): void {
+    const root = resolve(this.stagingDir) + sep;
+    for (const path of paths) {
+      const full = resolve(path);
+      if (!full.startsWith(root)) continue;
+      rmSync(join(full, '..'), { recursive: true, force: true });
+      this.vendedAttachmentPaths.delete(full);
+    }
+  }
+
   start(): void {
+    this.purgeStaging();
     // Rows stuck in `sending` mean we crashed mid-send. Surface them as failed rather than
     // blind-retrying, which could double-send.
     this.store.messages.recoverInterruptedSends();
@@ -189,6 +233,7 @@ export class AppService {
   }
 
   async stop(): Promise<void> {
+    this.purgeStaging();
     this.store.messages.stopExpirySweeper();
     this.rpc.close();
     await this.daemon.stop();
@@ -911,6 +956,9 @@ export class AppService {
       const timestamp = summary.timestamp ?? Date.now();
 
       const message = this.store.messages.markOutboundSent(row.id, timestamp, selfId);
+      // markOutboundSent has copied every file into the attachment cache; a pasted image's
+      // staged copy has done its job.
+      this.releaseStaged(attachments ?? []);
       this.pushMessage(conversationId, message);
       playSound('send');
 
@@ -1285,6 +1333,16 @@ export class AppService {
     return this.store.messages.getMessage(messageId)?.conversationId ?? null;
   }
 }
+
+/** File extensions for pasted images, which arrive with a MIME type but often no usable name. */
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/heic': '.heic',
+  'image/tiff': '.tiff',
+};
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

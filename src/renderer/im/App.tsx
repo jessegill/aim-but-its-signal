@@ -39,6 +39,7 @@ import {
   Button,
   CONNECTION_LABELS,
   ImWindow,
+  ShareDialog,
   StatusBar,
   TitleBar,
   Window,
@@ -46,6 +47,7 @@ import {
   imMenus,
   type FormattingState,
   type MenuSpec,
+  type ShareItem,
 } from '../ui';
 import {
   BRIDGE_MISSING,
@@ -283,15 +285,14 @@ export function App({ conversationId }: AppProps): JSX.Element {
 
   /* --- send ------------------------------------------------------------------ */
 
-  const send = React.useCallback(
-    (body: string): void => {
+  /**
+   * Sends `body` with `files`. The composer sends its staged chips; the share dialog sends the
+   * files that were dropped or pasted, with their description as the body.
+   */
+  const sendWith = React.useCallback(
+    (body: string, files: PickedFile[], restoreOnFailure: boolean): void => {
       if (conversationId === null) return;
       setTyping(false);
-      // Cleared optimistically along with the draft: the composer emptying is what tells the
-      // user the send happened, and leaving the chips behind on a slow send invites a second
-      // click that would attach the same files twice. A failure restores them below.
-      const files = pendingFiles;
-      setPendingFiles([]);
       void (async () => {
         try {
           const { messageId } = await invoke(
@@ -335,12 +336,29 @@ export function App({ conversationId }: AppProps): JSX.Element {
         } catch (err) {
           setError(describeFailure('im:send', err));
           // The message did not go. Put the files back rather than silently dropping a send the
-          // user still believes is staged.
-          setPendingFiles((prev) => (prev.length === 0 ? files : [...files, ...prev]));
+          // user still believes is staged — as chips in the composer, whichever way they came.
+          if (restoreOnFailure || files.length > 0) {
+            setPendingFiles((prev) => {
+              const seen = new Set(prev.map((file) => file.path));
+              return [...files.filter((file) => !seen.has(file.path)), ...prev];
+            });
+          }
         }
       })();
     },
-    [conversationId, setTyping, self, pendingFiles]
+    [conversationId, setTyping, self]
+  );
+
+  const send = React.useCallback(
+    (body: string): void => {
+      // Cleared optimistically along with the draft: the composer emptying is what tells the
+      // user the send happened, and leaving the chips behind on a slow send invites a second
+      // click that would attach the same files twice. A failure restores them.
+      const files = pendingFiles;
+      setPendingFiles([]);
+      sendWith(body, files, true);
+    },
+    [pendingFiles, sendWith]
   );
 
   /* --- attachments ------------------------------------------------------------ */
@@ -388,6 +406,112 @@ export function App({ conversationId }: AppProps): JSX.Element {
     })();
   }, []);
 
+  /* --- drop and paste → "Send Picture" ------------------------------------------ */
+
+  /** Files dropped or pasted, waiting in the share dialog. Null when it is closed. */
+  const [shareItems, setShareItems] = React.useState<ShareItem[] | null>(null);
+  const [dragging, setDragging] = React.useState(false);
+  /** dragenter/dragleave fire for every child crossed; count them to know when it really left. */
+  const dragDepth = React.useRef(0);
+
+  const canShare =
+    contact !== null &&
+    !contact.unregistered &&
+    !contact.blocked &&
+    connection === 'linked' &&
+    typeof window.files?.stage === 'function';
+
+  const closeShare = React.useCallback((): void => {
+    setShareItems((items) => {
+      for (const item of items ?? []) {
+        if (item.previewUrl !== null) URL.revokeObjectURL(item.previewUrl);
+      }
+      return null;
+    });
+  }, []);
+
+  /** Hands each file to main, then opens (or adds to) the share dialog. */
+  const share = React.useCallback(
+    (files: File[]): void => {
+      if (files.length === 0) return;
+      if (!canShare) {
+        setNotice(
+          connection !== 'linked'
+            ? 'Not connected — files can be sent once this computer is linked again.'
+            : 'You cannot send to this conversation.'
+        );
+        return;
+      }
+      void (async () => {
+        const accepted: ShareItem[] = [];
+        const refused: string[] = [];
+        for (const file of files) {
+          try {
+            const result = await window.files.stage(file);
+            if ('file' in result) {
+              accepted.push({
+                file: result.file,
+                previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+              });
+            } else {
+              refused.push(`${result.rejected.name} (${result.rejected.reason})`);
+            }
+          } catch (err) {
+            refused.push(`${file.name || 'file'} (${describeFailure('stage', err)})`);
+          }
+        }
+        setNotice(refused.length === 0 ? null : `Not attached — ${refused.join(', ')}.`);
+        if (accepted.length === 0) return;
+        setShareItems((current) => {
+          const existing = current ?? [];
+          const seen = new Set(existing.map((item) => item.file.path));
+          return [...existing, ...accepted.filter((item) => !seen.has(item.file.path))];
+        });
+      })();
+    },
+    [canShare, connection]
+  );
+
+  const hasFiles = (e: React.DragEvent): boolean => e.dataTransfer.types.includes('Files');
+
+  const dropHandlers = {
+    onDragEnter: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current += 1;
+      setDragging(true);
+    },
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!hasFiles(e)) return;
+      // Always claimed, even when sending is impossible: an unclaimed file drop makes Electron
+      // navigate the window to the file.
+      e.preventDefault();
+      e.dataTransfer.dropEffect = canShare ? 'copy' : 'none';
+    },
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!hasFiles(e)) return;
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragging(false);
+    },
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      share([...e.dataTransfer.files]);
+    },
+    onPaste: (e: React.ClipboardEvent<HTMLDivElement>) => {
+      // Only a paste that carries files is ours; text pastes into the composer as normal.
+      const files = [...e.clipboardData.files];
+      if (files.length === 0) return;
+      e.preventDefault();
+      share(files);
+    },
+  };
+
+  const recipientName =
+    group?.name ?? (contact?.nickname?.trim() ? contact.nickname : contact?.displayName) ?? '';
+
   /* --- menus ------------------------------------------------------------------ */
 
   const menus: MenuSpec[] = React.useMemo(() => {
@@ -414,8 +538,33 @@ export function App({ conversationId }: AppProps): JSX.Element {
     <div
       className="aim-root chrome"
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      {...dropHandlers}
     >
       {children}
+      {dragging ? (
+        <div className="aim-dropzone">
+          {canShare ? `Drop to send to ${recipientName}` : 'You cannot send files here right now'}
+        </div>
+      ) : null}
+      {shareItems !== null && shareItems.length > 0 ? (
+        <ShareDialog
+          items={shareItems}
+          recipientName={recipientName}
+          onCancel={closeShare}
+          onRemove={(path) =>
+            setShareItems((items) => {
+              const gone = items?.find((item) => item.file.path === path);
+              if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
+              return (items ?? []).filter((item) => item.file.path !== path);
+            })
+          }
+          onSend={(description) => {
+            const files = shareItems.map((item) => item.file);
+            closeShare();
+            sendWith(description, files, false);
+          }}
+        />
+      ) : null}
       {error !== null || notice !== null ? (
         <div className="aim-im__warning" role="alert" style={{ flex: '0 0 auto' }}>
           {error ?? notice}

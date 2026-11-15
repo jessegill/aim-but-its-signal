@@ -212,6 +212,16 @@ headers before or after each other. A room can never enter a buddy group, and th
 section headers never move. The dragged item lives in a ref, not the drag payload, so nothing
 dropped from outside the window can act.
 
+**Dropping or pasting a file opens "Send Picture" — without loosening the picker ledger.** Main
+still sends only paths it vended. A dropped file's path is derived in the *preload* with
+`webUtils.getPathForFile` from a browser-created File, and sent on a preload-only channel
+absent from the renderer's allowlist; a renderer cannot forge a File with a path, so it still
+cannot name an arbitrary file. A pasted image has no file behind it, so main writes the bytes
+to `userData/staging/` (0700), vends that, deletes it once the send has been copied into the
+attachment cache, and empties the folder at start and stop. The description is sent as the
+message body — Signal's caption. Navigation is now limited to the app's own pages: an unclaimed
+file drop used to navigate a window to the dropped file.
+
 **A second copy refuses to start.** `npm run dev` and the packaged app have different
 user-data directories and therefore different single-instance locks, but the same daemon socket
 — and `start()` deletes a leftover socket file, which cut the running copy off. Start-up now

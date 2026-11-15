@@ -172,6 +172,9 @@ export interface RejectedFile {
  */
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
+/** A file dropped or pasted into an IM window, after main has checked and accepted it. */
+export type StagedFileResult = { file: PickedFile } | { rejected: RejectedFile };
+
 export interface QuoteStub {
   id: string;
   authorId: BuddyId;

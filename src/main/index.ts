@@ -9,6 +9,7 @@
  */
 
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 
@@ -68,10 +69,15 @@ function hardenWebContents(): void {
       return { action: 'deny' };
     });
 
+    // The app's own pages, and nothing else on disk. This used to allow any file:// URL — and
+    // a file dropped on a window that does not claim the drop navigates the window to it, so
+    // dropping a file on the buddy list replaced the app with that file.
+    const rendererRoot = `${pathToFileURL(join(__dirname, '../renderer')).href}/`;
+
     contents.on('will-navigate', (event, url) => {
       const devServer = process.env.ELECTRON_RENDERER_URL;
       const isAppUrl =
-        url.startsWith('file://') || (devServer !== undefined && url.startsWith(devServer));
+        url.startsWith(rendererRoot) || (devServer !== undefined && url.startsWith(devServer));
       if (!isAppUrl) {
         event.preventDefault();
         if (url.startsWith('https://')) void shell.openExternal(url);

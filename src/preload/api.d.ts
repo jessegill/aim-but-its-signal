@@ -1,4 +1,10 @@
-import type { IpcEventChannel, IpcEvents, IpcRequestChannel, IpcRequests } from '@shared/types';
+import type {
+  IpcEventChannel,
+  IpcEvents,
+  IpcRequestChannel,
+  IpcRequests,
+  StagedFileResult,
+} from '@shared/types';
 
 /** Detach a pushed-event listener. Always call this on unmount. */
 export type Unsubscribe = () => void;
@@ -28,6 +34,15 @@ export interface RetroIpcApi {
  * Window chrome control for the custom XP-style title bar (SPEC.md §9). Every window is
  * frameless, so these replace the native macOS traffic lights.
  */
+export interface FilesApi {
+  /**
+   * Hands a dropped or pasted File to main, which checks it and makes it sendable. A file on
+   * disk is referenced in place; one with no file behind it (a pasted screenshot) is copied
+   * into a private staging folder first.
+   */
+  readonly stage: (file: File) => Promise<StagedFileResult>;
+}
+
 export interface WindowControlsApi {
   readonly minimize: () => void;
   /** Toggles between maximized and restored. */
@@ -41,5 +56,6 @@ declare global {
   interface Window {
     readonly api: RetroIpcApi;
     readonly windowControls: WindowControlsApi;
+    readonly files: FilesApi;
   }
 }

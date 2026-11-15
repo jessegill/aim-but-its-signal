@@ -72,6 +72,21 @@ export const WINDOW_CONTROL_CHANNELS = {
   maximizedChanged: 'window:maximizedChanged',
 } as const;
 
+/**
+ * Channels only the preload calls, deliberately absent from REQUEST_CHANNELS so the renderer
+ * cannot reach them through `api.invoke`.
+ *
+ * `vendDropped` takes a filesystem path. The preload derives it with `webUtils.getPathForFile`
+ * from a File the browser created for a real drop or paste; a renderer cannot forge such a File
+ * (one it constructs has no path), so it cannot name an arbitrary file to send. Exposing this
+ * channel to the renderer directly would reopen exactly the arbitrary-file-read hole the
+ * picker ledger closes.
+ */
+export const PRELOAD_CHANNELS = {
+  vendDropped: 'attachment:vendDropped',
+  stageBytes: 'attachment:stageBytes',
+} as const;
+
 // --- exhaustiveness guards ---------------------------------------------------------------
 // If these ever error, a channel was added to src/shared/types.ts without being allowlisted
 // above, and the renderer would be blocked at runtime.

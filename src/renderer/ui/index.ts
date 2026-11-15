@@ -74,6 +74,8 @@ export { BuddyRow, formatDuration } from './BuddyRow';
 export type { BuddyRowProps } from './BuddyRow';
 
 export { ImWindow } from './ImWindow';
+export { ShareDialog } from './ShareDialog';
+export type { ShareDialogProps, ShareItem } from './ShareDialog';
 export type { ImWindowProps } from './ImWindow';
 export {
   MessageLog,

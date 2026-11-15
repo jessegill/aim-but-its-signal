@@ -7,13 +7,25 @@
  * channels declared in src/shared/types.ts, plus frameless-window chrome control.
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { IpcRendererEvent } from 'electron';
 
-import type { IpcEventChannel, IpcEvents, IpcRequestChannel, IpcRequests } from '@shared/types';
+import { MAX_ATTACHMENT_BYTES } from '@shared/types';
+import type {
+  IpcEventChannel,
+  IpcEvents,
+  IpcRequestChannel,
+  IpcRequests,
+  StagedFileResult,
+} from '@shared/types';
 
-import type { RetroIpcApi, Unsubscribe, WindowControlsApi } from './api';
-import { EVENT_CHANNELS, REQUEST_CHANNELS, WINDOW_CONTROL_CHANNELS } from './channels';
+import type { FilesApi, RetroIpcApi, Unsubscribe, WindowControlsApi } from './api';
+import {
+  EVENT_CHANNELS,
+  PRELOAD_CHANNELS,
+  REQUEST_CHANNELS,
+  WINDOW_CONTROL_CHANNELS,
+} from './channels';
 
 const requestChannels: ReadonlySet<string> = new Set<string>(REQUEST_CHANNELS);
 const eventChannels: ReadonlySet<string> = new Set<string>(EVENT_CHANNELS);
@@ -71,5 +83,32 @@ const windowControls: WindowControlsApi = {
   },
 };
 
+const files: FilesApi = {
+  stage: async (file: File): Promise<StagedFileResult> => {
+    if (!(file instanceof File)) {
+      return { rejected: { name: 'file', reason: 'not a file' } };
+    }
+    // A real file on disk (dragged from Finder, or copied there and pasted): referenced in
+    // place, exactly as the picker does. The path comes from the browser, not the renderer.
+    const path = webUtils.getPathForFile(file);
+    if (path !== '') {
+      return (await ipcRenderer.invoke(PRELOAD_CHANNELS.vendDropped, path)) as StagedFileResult;
+    }
+    // No file behind it — a screenshot or image copied from another app. Main writes it out.
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      return {
+        rejected: { name: file.name || 'image', reason: 'larger than the 100 MB Signal allows' },
+      };
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return (await ipcRenderer.invoke(PRELOAD_CHANNELS.stageBytes, {
+      name: file.name,
+      type: file.type,
+      bytes,
+    })) as StagedFileResult;
+  },
+};
+
 contextBridge.exposeInMainWorld('api', api);
+contextBridge.exposeInMainWorld('files', files);
 contextBridge.exposeInMainWorld('windowControls', windowControls);

@@ -366,23 +366,26 @@ export function App(): JSX.Element {
 
   /* --- context menus ------------------------------------------------------ */
 
+  // Same path as dragging onto a group: a pinned or archived buddy is displayed only on its
+  // shelf, so moving its group without taking it off the shelf changed nothing on screen.
   const groupAssignmentItems = React.useCallback(
-    (buddy: Buddy & { groupId: GroupId }): MenuItemSpec[] => [
-      ...groups.map((g) => ({
-        label: `Move to “${g.name}”`,
-        checked: g.id === buddy.groupId,
-        disabled: g.id === buddy.groupId,
-        onSelect: () => mutate('roster:move', () => invoke('roster:move', buddy.id, g.id)),
-      })),
-      {
-        label: 'Move to New Group…',
-        onSelect: () =>
-          promptNewGroup((groupId) =>
-            mutate('roster:move', () => invoke('roster:move', buddy.id, groupId))
-          ),
-      },
-    ],
-    [groups, mutate, promptNewGroup]
+    (buddy: Buddy & { groupId: GroupId }): MenuItemSpec[] => {
+      const shelved = shelfOf(buddy.id) !== 'normal';
+      return [
+        ...groups.map((g) => ({
+          label: `Move to “${g.name}”`,
+          checked: g.id === buddy.groupId,
+          // Its own group is still a real destination from a shelf: it means "unpin into it".
+          disabled: g.id === buddy.groupId && !shelved,
+          onSelect: () => dropBuddy(buddy.id, g.id, null),
+        })),
+        {
+          label: 'Move to New Group…',
+          onSelect: () => promptNewGroup((groupId) => dropBuddy(buddy.id, groupId, null)),
+        },
+      ];
+    },
+    [groups, dropBuddy, promptNewGroup, shelfOf]
   );
 
   const onBuddyContextMenu = React.useCallback(

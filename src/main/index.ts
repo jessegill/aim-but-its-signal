@@ -8,6 +8,8 @@
  * macOS / Apple Silicon only, minimum macOS 15.
  */
 
+import { join } from 'node:path';
+
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 
 import { WINDOW_CONTROL_CHANNELS } from '../preload/channels';
@@ -120,6 +122,12 @@ app.on('second-instance', () => {
 
 void app.whenReady().then(() => {
   registerWindowControls();
+
+  // A packaged build takes its Dock icon from the bundle's .icns. `npm run dev` runs the stock
+  // Electron binary, which would otherwise show Electron's own icon.
+  if (!app.isPackaged) {
+    app.dock?.setIcon(join(app.getAppPath(), 'resources', 'icons', 'icon.png'));
+  }
 
   try {
     // The store's encryption key comes from the macOS Keychain via safeStorage, which is not

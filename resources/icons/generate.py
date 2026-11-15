@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Generate the app icon and UI glyphs for the AIMgnal client.
+Generate the UI glyphs for the AIMgnal client.
+
+The app icon itself is NOT generated here any more: it comes from icon.png,
+built into the iconset and .icns by build-app-icon.sh.
 
 ALL ARTWORK HERE IS ORIGINAL, drawn from scratch as code with the Python
 standard library. Nothing is traced, extracted, downloaded, or derived from
@@ -24,10 +27,6 @@ and it keeps the icon from looking oversized next to rounded Dock neighbours.
 The tile is inset 2 units (6.25%) inside the canvas for the same reason.
 
 Outputs (written next to this script):
-    app.svg, app-16.svg            vector source for the app icon
-    app-{16,32,64,128,256,512}.png raster exports
-    AIMgnal.iconset/               full macOS iconset incl. @2x retina
-    AIMgnal.icns                   built with iconutil, for Electron packaging
     glyph-*.svg                    UI glyphs (SVG is the shipping format)
     glyph-*-{16,32,64}.png         convenience rasters
 
@@ -430,37 +429,9 @@ ICONSET_MEMBERS = [
 
 
 def build():
-    app32, app16 = draw_app_32(), draw_app_16()
-    masters = {"32": app32, "16": app16}
+    # The app icon is no longer drawn here: it is built from icon.png by
+    # build-app-icon.sh. draw_app_32 / draw_app_16 are kept for the record.
     made = []
-
-    write_svg(os.path.join(HERE, "app.svg"), app32, "AIMgnal app icon")
-    write_svg(os.path.join(HERE, "app-16.svg"), app16,
-              "AIMgnal app icon (16px variant)")
-    made += ["app.svg", "app-16.svg"]
-
-    # standalone PNG exports; 16px uses the simplified master
-    for size in (16, 32, 64, 128, 256, 512):
-        master, scale = ("16", 1) if size == 16 else ("32", size // 32)
-        name = "app-%d.png" % size
-        write_png(os.path.join(HERE, name), masters[master], scale)
-        made.append(name)
-
-    # full macOS iconset (retina variants included -- a .icns without @2x
-    # renders blurry in the Dock)
-    if os.path.isdir(ICONSET):
-        shutil.rmtree(ICONSET)
-    os.makedirs(ICONSET)
-    for name, _size, master, scale in ICONSET_MEMBERS:
-        write_png(os.path.join(ICONSET, name), masters[master], scale)
-    made.append("AIMgnal.iconset/ (%d files)" % len(ICONSET_MEMBERS))
-
-    if shutil.which("iconutil"):
-        subprocess.run(["iconutil", "-c", "icns", ICONSET, "-o", ICNS],
-                       check=True)
-        made.append("AIMgnal.icns")
-    else:
-        print("warning: iconutil not found; skipped .icns", file=sys.stderr)
 
     for base, (fn, title) in GLYPHS.items():
         cv = fn()
@@ -532,10 +503,7 @@ def svg_to_grid(path):
 
 
 # svg basename -> the function that draws its master grid
-SOURCES = {
-    "app": draw_app_32,
-    "app-16": draw_app_16,
-}
+SOURCES = {}
 SOURCES.update({name: fn for name, (fn, _t) in GLYPHS.items()})
 
 

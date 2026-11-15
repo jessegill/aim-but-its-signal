@@ -8,8 +8,10 @@ network as a linked secondary device. Every conversation opens in its own OS win
 > **Not affiliated with, endorsed by, or connected to** Signal Messenger LLC, the Signal
 > Technology Foundation, AOL, Yahoo, or any successor rights holder. The name is a portmanteau
 > used descriptively to say what this project is. All trademarks belong to their respective
-> owners. No AOL or AIM artwork is used or distributed — all retro assets are original
-> look-alikes.
+> owners. The **app icon** (`resources/icons/icon.png`) depicts the AIM running man inside a
+> Signal-style speech bubble; those marks belong to their owners and appear here as a
+> non-commercial fan homage. Every other asset — the interface, glyphs and sounds — is
+> original.
 
 ## What it is
 

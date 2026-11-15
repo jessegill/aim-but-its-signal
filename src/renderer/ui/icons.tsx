@@ -9,10 +9,15 @@
  * Nothing here depicts a running figure, a yellow-on-blue "buddy" silhouette,
  * or any AOL wordmark.
  *
+ * The one exception is {@link AppMark}, which shows the app icon itself
+ * (resources/icons/icon.png) — the project owner's choice, recorded in SPEC.md
+ * §9 Assets. Every glyph below it is original.
+ *
  * Square-corner rule applies to SVG too: no `rx`/`ry`, no `<circle>` used as
- * chrome. Circles appear only inside the abstract app mark where they read as
- * drawing, not as UI geometry.
+ * chrome.
  */
+
+import appIconUrl from '../../../resources/icons/app-128.png';
 
 export interface IconProps {
   size?: number;
@@ -23,34 +28,23 @@ export interface IconProps {
 const box = (size: number) => ({ width: size, height: size, display: 'block' as const });
 
 /* ---------------------------------------------------------------------------
- * App mark — an original "signal tower over a message slip" glyph.
- * Yellow chip, black keyline, era-appropriate. Used in title bars and banners.
+ * App mark — the app icon (resources/icons/icon.png), used in every title bar
+ * and on the buddy-list and sign-on banners, so the window chrome matches the
+ * Dock. The 128 px export covers the largest use (38 px banner) at 2x and is
+ * downscaled smoothly for the 16 px title-bar slot.
  * ------------------------------------------------------------------------ */
 export function AppMark({ size = 16, className, title }: IconProps) {
   return (
-    <svg viewBox="0 0 16 16" style={box(size)} className={className} aria-hidden={!title}>
-      {title ? <title>{title}</title> : null}
-      <rect x="0" y="0" width="16" height="16" fill="#FFCC00" />
-      <rect x="0" y="0" width="16" height="1" fill="#FFE680" />
-      <rect x="0" y="0" width="1" height="16" fill="#FFE680" />
-      <rect x="0" y="15" width="16" height="1" fill="#8A6D00" />
-      <rect x="15" y="0" width="1" height="16" fill="#8A6D00" />
-      {/* message slip */}
-      <rect x="2" y="7" width="12" height="7" fill="#FFFFFF" />
-      <rect x="2" y="7" width="12" height="1" fill="#8A6D00" />
-      <path d="M2 8 L8 12 L14 8" fill="none" stroke="#1A1A1A" strokeWidth="1" />
-      <rect x="2" y="7" width="12" height="7" fill="none" stroke="#1A1A1A" strokeWidth="1" />
-      {/* broadcast arcs */}
-      <path d="M5 5 A4 4 0 0 1 11 5" fill="none" stroke="#1A1A1A" strokeWidth="1.4" />
-      <path
-        d="M3 3.5 A6.5 6.5 0 0 1 13 3.5"
-        fill="none"
-        stroke="#1A1A1A"
-        strokeWidth="1.2"
-        opacity="0.75"
-      />
-      <rect x="7" y="4" width="2" height="2" fill="#1A1A1A" />
-    </svg>
+    <img
+      src={appIconUrl}
+      width={size}
+      height={size}
+      style={{ ...box(size), objectFit: 'contain' }}
+      className={className}
+      alt={title ?? ''}
+      aria-hidden={!title}
+      draggable={false}
+    />
   );
 }
 
@@ -302,7 +296,7 @@ export function GlyphEnvelope({ size = 14 }: { size?: number }) {
  * The classic yellow smiley, for the emoticon palette.
  *
  * The square-corner rule governs UI geometry; a face is drawing, not chrome, so
- * it gets circles for the same reason {@link AppMark} does.
+ * it gets circles.
  */
 export function GlyphSmiley({ size = 14 }: { size?: number }) {
   return (

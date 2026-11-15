@@ -4,9 +4,15 @@ Sounds and icons for the client. Target platform is **macOS only**.
 
 ## Originality statement
 
-**Every asset in this directory is original work created for this project.**
+**Every asset in this directory is original work created for this project — except the app
+icon.**
 
-Nothing here was copied, extracted, sampled, traced, or downloaded from AOL, AIM, or any
+The app icon, `icons/icon.png`, is the project owner's own choice and is **not** original: it
+depicts the AIM running man inside a Signal-style speech bubble, marks that belong to their
+respective owners. It is built into the iconset and `.icns` by `icons/build-app-icon.sh`.
+Everything below about originality applies to every other file.
+
+Nothing else here was copied, extracted, sampled, traced, or downloaded from AOL, AIM, or any
 other product. There is no running man, no AIM or AOL mark, and no reuse of AOL's
 yellow-and-blue trade dress. The audio is synthesized from mathematical waveforms (sine,
 triangle, square, seeded pseudo-random noise); the artwork is drawn from scratch as code on
@@ -101,38 +107,20 @@ placeholder so it sits correctly in the buddy list.
 
 ### App icon
 
-Two overlapping square speech balloons on a teal tile: an amber balloon behind (the other
-person) and a cream balloon in front holding three ink dots — the universal typing ellipsis.
-It reads as "instant messenger" at a glance without borrowing anyone's mark.
-
-**Shape decision (square corners vs. the Dock).** SPEC.md §9 requires square corners
-globally, and calls it "the single highest-impact rule." That rule governs the *interface*,
-so the tile stays hard-edged and square rather than becoming a macOS squircle — a rounded
-app icon would undercut the whole premise. The one concession to the Dock is a **2-unit
-stepped corner chamfer** and a 2-unit (6.25%) inset inside the canvas. The stair-step is how
-pixel artists actually softened a corner in this era, so it is era-correct rather than a
-compromise, and it stops the icon from looking oversized and alien beside rounded Dock
-neighbours. It is still unmistakably a square.
-
-The 16 px artwork is a separate hand-tuned drawing, not a downscale: at that size the
-two-balloon composition turns to mud, so it drops to a single balloon with three 2-unit dots.
+Built from `icon.png` (512×512 RGBA) by `build-app-icon.sh`, using only `sips` and `iconutil`,
+which ship with macOS. Edit `icon.png`, then run the script.
 
 | File | Notes |
 |---|---|
-| `app.svg` | Vector source, 32-unit grid |
-| `app-16.svg` | Vector source, simplified 16-unit variant |
-| `app-{16,32,64,128,256,512}.png` | Raster exports; the 16 px uses the simplified master |
-| `AIMgnal.iconset/` | Full macOS iconset, 10 members |
+| `icon.png` | **Source.** Also the Dock icon under `npm run dev` |
+| `build-app-icon.sh` | Regenerates everything below from `icon.png` |
+| `app-{16,32,64,128,256,512}.png` | Raster exports |
+| `AIMgnal.iconset/` | Full macOS iconset, 10 members including every `@2x` |
 | `AIMgnal.icns` | **What Electron packaging consumes on macOS** |
 
-The `.icns` contains all ten standard members including every `@2x` retina variant —
-16, 16@2x, 32, 32@2x, 128, 128@2x, 256, 256@2x, 512, 512@2x (up to 1024×1024 pixels). A
-`.icns` missing retina variants renders blurry in the Dock. Verified by round-tripping the
-`.icns` back out with `iconutil -c iconset` and confirming all ten are present.
-
-Per-size sourcing follows normal macOS practice: the 16 pt slots (16, 16@2x) render the
-simplified 16-unit artwork at 1× and 2×; everything from 32 pt up renders the 32-unit master
-at 1×–32×.
+The 512@2x slot is a 1024 px upscale of the 512 px source; supply a 1024 px `icon.png` for a
+sharper retina Dock icon. `generate.py` no longer draws an app icon (the teal two-balloon tile
+it used to produce is retired), but still produces the UI glyphs below.
 
 ### UI glyphs
 
@@ -159,7 +147,8 @@ the era (hard edges, on-grid, beveled faces) but it is designed to be noticed.
 ### Regenerating
 
 ```sh
-python3 icons/generate.py            # redraw everything, rebuild the .icns, verify
+icons/build-app-icon.sh              # rebuild the app icon and .icns from icon.png
+python3 icons/generate.py            # redraw the UI glyphs, verify
 python3 icons/generate.py --verify   # verify existing files without redrawing
 ```
 

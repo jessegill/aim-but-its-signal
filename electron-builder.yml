@@ -26,6 +26,9 @@ files:
 # package.json > dependencies.
 asarUnpack:
   - "**/node_modules/better-sqlite3-multiple-ciphers/**"
+  # Message sounds are played by macOS `afplay` (src/main/service.ts), which cannot read inside
+  # an asar archive.
+  - "resources/sounds/**"
 
 # Rebuilding is handled by `postinstall` (@electron/rebuild), which downloads the publisher's
 # Electron-ABI prebuild rather than compiling. Leaving electron-builder's own rebuild off keeps

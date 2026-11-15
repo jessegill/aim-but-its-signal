@@ -334,12 +334,17 @@ sound.
 Do **not** ship extracted AIM or AOL artwork. The running man and AIM marks are not ours to
 distribute. Create original look-alike assets.
 
+> **Owner's exception (2026-11-14):** the app icon (`resources/icons/icon.png`) deliberately
+> uses the running man inside a Signal-style bubble, by the project owner's decision. It is
+> the only exception; everything inside the app stays original.
+
 ---
 
 ## 10. Constraints
 
 - **Naming and branding:** do not use "Signal" or "AIM"/"AOL" names, logos, or marks in the
-  product name, UI, icons, or repository name. Pick an original name.
+  product name, UI, icons, or repository name. Pick an original name. (Exception: the app
+  icon — see §9 Assets.)
 - **Licensing:** `signal-cli` is GPLv3 and runs as a **separate process communicated with over
   JSON-RPC** — keep that boundary clean and do not vendor its source into this codebase.
   License this repository compatibly and publish the source.
